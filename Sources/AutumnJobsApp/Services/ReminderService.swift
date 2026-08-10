@@ -56,6 +56,7 @@ enum ReminderService {
     private static let prefix = "autumnjobs."
     private static let maximumScheduledRequests = 60
     private static let refreshGate = ReminderRefreshGate()
+    @MainActor private static var deferredRefreshTask: Task<Void, Never>?
 
     static func requestAuthorization() async -> Bool {
         do {
@@ -85,6 +86,9 @@ enum ReminderService {
 
     @MainActor
     private static func performRefresh(store: AppStore) async -> ReminderRefreshResult {
+        deferredRefreshTask?.cancel()
+        deferredRefreshTask = nil
+
         let center = UNUserNotificationCenter.current()
         let pending = await center.pendingNotificationRequests()
         let identifiers = pending.map(\.identifier).filter { $0.hasPrefix(prefix) }
@@ -165,10 +169,7 @@ enum ReminderService {
             content.title = candidate.title
             content.body = candidate.body
             content.sound = .default
-            let components = Calendar.current.dateComponents(
-                [.year, .month, .day, .hour, .minute],
-                from: candidate.fireDate
-            )
+            let components = triggerDateComponents(for: candidate.fireDate)
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             let request = UNNotificationRequest(
                 identifier: candidate.identifier,
@@ -188,13 +189,40 @@ enum ReminderService {
         if failedCount > 0 {
             store.lastNotificationError = "有 \(failedCount) 条提醒调度失败：\(firstError?.localizedDescription ?? "未知错误")"
         } else if deferredCount > 0 {
-            store.lastNotificationError = "提醒数量较多，仅安排了最近的 \(maximumScheduledRequests) 条；更远的提醒将在后续刷新时安排。"
+            store.lastNotificationError = "提醒数量较多，仅安排了最近的 \(maximumScheduledRequests) 条；应用运行时会自动补充更远的提醒。"
+        }
+        if deferredCount > 0, let firstScheduledFireDate = candidates.first?.fireDate {
+            scheduleDeferredRefresh(store: store, after: firstScheduledFireDate)
         }
         return ReminderRefreshResult(
             scheduledCount: scheduledCount,
             failedCount: failedCount,
             deferredCount: deferredCount
         )
+    }
+
+    static func triggerDateComponents(
+        for date: Date,
+        calendar: Calendar = .current
+    ) -> DateComponents {
+        calendar.dateComponents(
+            [.year, .month, .day, .hour, .minute, .second],
+            from: date
+        )
+    }
+
+    @MainActor
+    private static func scheduleDeferredRefresh(store: AppStore, after fireDate: Date) {
+        let delay = max(1, fireDate.timeIntervalSinceNow + 1)
+        deferredRefreshTask = Task { @MainActor [weak store] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard let store else { return }
+            await refresh(store: store)
+        }
     }
 
     private static func insertIfSooner(

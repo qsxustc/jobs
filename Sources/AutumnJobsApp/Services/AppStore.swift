@@ -204,7 +204,9 @@ final class AppStore: ObservableObject {
 
     @discardableResult
     func saveApplication(id: UUID? = nil, data: ApplicationFormData) -> UUID {
+        removeOrphanedCompaniesAndProjects()
         let applicationID = upsertApplication(id: id, data: data, updateSharedMetadata: true)
+        removeOrphanedCompaniesAndProjects()
         _ = persist()
         return applicationID
     }
@@ -213,6 +215,7 @@ final class AppStore: ObservableObject {
         guard forms.count <= max(0, AppDataLimits.maximumPrimaryRecords - applications.count) else {
             throw CSVError.tooManyRecords
         }
+        removeOrphanedCompaniesAndProjects()
         var importedCount = 0
         var skippedDuplicateCount = 0
         var importKeys = Set(applications.compactMap(importKey))
@@ -242,6 +245,7 @@ final class AppStore: ObservableObject {
             importedCount += 1
         }
 
+        removeOrphanedCompaniesAndProjects()
         guard persist() else {
             throw AppStoreError.persistenceFailed(lastSaveError ?? "导入数据保存失败。")
         }
@@ -413,6 +417,7 @@ final class AppStore: ObservableObject {
         events.removeAll { $0.applicationID == id }
         todos.removeAll { $0.applicationID == id }
         statusHistory.removeAll { $0.applicationID == id }
+        removeOrphanedCompaniesAndProjects()
         _ = persist()
     }
 
@@ -676,16 +681,17 @@ final class AppStore: ObservableObject {
             let decoded = try decoder.decode(AppSnapshot.self, from: data)
             let originalSchemaVersion = decoded.schemaVersion
             let snapshot = try BackupService.prepare(decoded)
+            apply(snapshot)
+            // A failed migration write must roll back to the data that was just read,
+            // rather than the empty snapshot created during initialization.
+            lastPersistedSnapshot = currentSnapshot()
             if originalSchemaVersion < AppSnapshot.currentSchemaVersion {
                 let migrationBackupURL = storageURL.deletingLastPathComponent().appendingPathComponent("job-data-v1-backup.json")
                 if !FileManager.default.fileExists(atPath: migrationBackupURL.path) {
                     try FileManager.default.copyItem(at: storageURL, to: migrationBackupURL)
                 }
-                apply(snapshot)
                 guard persist() else { return false }
             } else {
-                apply(snapshot)
-                lastPersistedSnapshot = currentSnapshot()
                 lastSaveError = nil
             }
             return true
@@ -802,7 +808,7 @@ final class AppStore: ObservableObject {
             company: normalizedImportText(form.companyName),
             project: normalizedImportText(form.projectName),
             position: normalizedImportText(form.position),
-            appliedAtSecond: form.appliedAt.map { Int64($0.timeIntervalSince1970.rounded()) }
+            appliedAtSecond: form.appliedAt.map { Int64($0.timeIntervalSince1970.rounded(.down)) }
         )
     }
 
@@ -812,8 +818,16 @@ final class AppStore: ObservableObject {
             company: normalizedImportText(company.name),
             project: normalizedImportText(project(for: application)?.name ?? ""),
             position: normalizedImportText(application.position),
-            appliedAtSecond: application.appliedAt.map { Int64($0.timeIntervalSince1970.rounded()) }
+            appliedAtSecond: application.appliedAt.map { Int64($0.timeIntervalSince1970.rounded(.down)) }
         )
+    }
+
+    private func removeOrphanedCompaniesAndProjects() {
+        let referencedProjectIDs = Set(applications.compactMap(\.projectID))
+        projects.removeAll { !referencedProjectIDs.contains($0.id) }
+
+        let referencedCompanyIDs = Set(applications.map(\.companyID))
+        companies.removeAll { !referencedCompanyIDs.contains($0.id) }
     }
 
     private func normalizedImportText(_ value: String) -> String {

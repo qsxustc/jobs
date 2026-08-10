@@ -90,44 +90,52 @@ enum CSVService {
     }
 
     private static func escape(_ value: String) -> String {
-        if value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r") {
+        let needsQuoting = value.unicodeScalars.contains { scalar in
+            scalar == "," || scalar == "\"" || scalar == "\n" || scalar == "\r"
+        }
+        if needsQuoting {
             return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
         }
         return value
     }
 
     private static func parseRows(_ text: String) throws -> [[String]] {
-        let normalizedText = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
         var rows: [[String]] = []
         var row: [String] = []
         var field = ""
         var insideQuotes = false
-        var index = normalizedText.startIndex
+        let scalars = text.unicodeScalars
+        var index = scalars.startIndex
 
-        while index < normalizedText.endIndex {
-            let character = normalizedText[index]
-            if character == "\"" {
-                let next = normalizedText.index(after: index)
-                if insideQuotes, next < normalizedText.endIndex, normalizedText[next] == "\"" {
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            if scalar == "\"" {
+                let next = scalars.index(after: index)
+                if insideQuotes, next < scalars.endIndex, scalars[next] == "\"" {
                     field.append("\"")
                     index = next
                 } else {
                     insideQuotes.toggle()
                 }
-            } else if character == ",", !insideQuotes {
+            } else if scalar == ",", !insideQuotes {
                 row.append(field)
                 field = ""
-            } else if character == "\n", !insideQuotes {
+            } else if (scalar == "\n" || scalar == "\r"), !insideQuotes {
                 row.append(field)
                 if !row.allSatisfy({ $0.isEmpty }) { rows.append(row) }
                 row = []
                 field = ""
+
+                if scalar == "\r" {
+                    let next = scalars.index(after: index)
+                    if next < scalars.endIndex, scalars[next] == "\n" {
+                        index = next
+                    }
+                }
             } else {
-                field.append(character)
+                field.unicodeScalars.append(scalar)
             }
-            index = normalizedText.index(after: index)
+            index = scalars.index(after: index)
         }
         guard !insideQuotes else { throw CSVError.malformedCSV }
         row.append(field)

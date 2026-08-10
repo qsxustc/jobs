@@ -16,8 +16,11 @@ struct EventEditorView: View {
     }
 
     private var canSave: Bool {
-        !form.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        (form.endsAt == nil || form.endsAt! >= form.startsAt)
+        guard !form.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        guard let endsAt = form.endsAt else { return true }
+        return endsAt >= form.startsAt
     }
 
     var body: some View {

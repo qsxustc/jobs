@@ -76,6 +76,56 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(first.notes, "包含,逗号的备注")
     }
 
+    func testCSVExportRoundTripsCRLFInsideNotes() throws {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var form = ApplicationFormData()
+        form.companyName = "换行测试公司"
+        form.position = "研发工程师"
+        form.notes = "第一行\r\n第二行"
+        store.saveApplication(data: form)
+
+        let exported = CSVService.export(applications: store.applications, store: store)
+        let decoded = try CSVService.decode(exported)
+
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded.first?.notes, form.notes)
+    }
+
+    func testCSVExportImportUsesMatchingSecondPrecisionForDuplicates() throws {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var form = ApplicationFormData()
+        form.companyName = "去重测试公司"
+        form.projectName = "秋招"
+        form.position = "客户端工程师"
+        form.appliedAt = Date(timeIntervalSince1970: 2_000_000_000.75)
+        store.saveApplication(data: form)
+
+        let exported = CSVService.export(applications: store.applications, store: store)
+        let decoded = try CSVService.decode(exported)
+        let result = try store.importApplications(decoded)
+
+        XCTAssertEqual(result.importedCount, 0)
+        XCTAssertEqual(result.skippedDuplicateCount, 1)
+        XCTAssertEqual(store.applications.count, 1)
+    }
+
+    func testReminderTriggerPreservesSeconds() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let date = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2030,
+            month: 5,
+            day: 6,
+            hour: 7,
+            minute: 8,
+            second: 37
+        )))
+
+        let components = ReminderService.triggerDateComponents(for: date, calendar: calendar)
+
+        XCTAssertEqual(components.second, 37)
+    }
+
     func testBackupRoundTrip() throws {
         let snapshot = AppSnapshot(
             companies: [Company(name: "备份公司")],
@@ -174,6 +224,86 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(savedSnapshot.schemaVersion, 2)
     }
 
+    func testFailedVersionOneMigrationKeepsLoadedDataForRetry() throws {
+        let url = temporaryURL()
+        let directory = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let company = Company(name: "迁移重试公司")
+        let application = JobApplication(companyID: company.id, position: "不能丢失的岗位", status: .applied)
+        let oldSnapshot = AppSnapshot(
+            schemaVersion: 1,
+            companies: [company],
+            projects: [],
+            applications: [application],
+            events: [],
+            todos: [],
+            statusHistory: [],
+            settings: UserSettings(),
+            customStages: nil,
+            tags: nil,
+            resumeVersions: nil
+        )
+        try BackupService.encode(oldSnapshot).write(to: url)
+        let backupURL = directory.appendingPathComponent("job-data-v1-backup.json")
+        try BackupService.encode(oldSnapshot).write(to: backupURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+
+        let store = AppStore(storageURL: url, loadSampleIfEmpty: false)
+
+        XCTAssertEqual(store.applications.map(\.position), ["不能丢失的岗位"])
+        XCTAssertTrue(store.lastSaveError?.contains("保存失败") == true)
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        var newForm = ApplicationFormData()
+        newForm.companyName = "新公司"
+        newForm.position = "新岗位"
+        store.saveApplication(data: newForm)
+
+        XCTAssertEqual(Set(store.applications.map(\.position)), ["不能丢失的岗位", "新岗位"])
+        XCTAssertNil(store.lastSaveError)
+        let savedSnapshot = try BackupService.decode(Data(contentsOf: url))
+        XCTAssertEqual(Set(savedSnapshot.applications.map(\.position)), ["不能丢失的岗位", "新岗位"])
+    }
+
+    func testDeletingApplicationsRemovesOnlyOrphanedCompaniesAndProjects() throws {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var first = ApplicationFormData()
+        first.companyName = "清理测试公司"
+        first.companyIndustry = "不应复活的行业"
+        first.companyWebsite = "https://stale.example"
+        first.projectName = "共同项目"
+        first.projectURL = "https://stale.example/project"
+        first.position = "岗位一"
+        let firstID = store.saveApplication(data: first)
+
+        var second = first
+        second.position = "岗位二"
+        let secondID = store.saveApplication(data: second)
+
+        store.deleteApplication(id: firstID)
+        XCTAssertEqual(store.companies.count, 1)
+        XCTAssertEqual(store.projects.count, 1)
+
+        store.deleteApplication(id: secondID)
+        XCTAssertTrue(store.companies.isEmpty)
+        XCTAssertTrue(store.projects.isEmpty)
+
+        var replacement = ApplicationFormData()
+        replacement.companyName = first.companyName.lowercased()
+        replacement.projectName = first.projectName.lowercased()
+        replacement.position = "新岗位"
+        let replacementID = store.saveApplication(data: replacement)
+        let savedReplacement = try XCTUnwrap(store.application(id: replacementID))
+
+        XCTAssertEqual(store.company(for: savedReplacement)?.industry, "")
+        XCTAssertEqual(store.company(for: savedReplacement)?.website, "")
+        XCTAssertEqual(store.project(for: savedReplacement)?.url, "")
+    }
+
     func testCustomStageTagsAndResumeAssociations() {
         let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
         let stageID = store.addCustomStage(name: "等待 HC", colorKey: "orange", isTerminal: false)
@@ -187,7 +317,9 @@ final class AppStoreTests: XCTestCase {
         form.tagIDs = [tagID]
         form.resumeVersionID = resumeID
         let applicationID = store.saveApplication(data: form)
-        let application = store.application(id: applicationID)!
+        guard let application = store.application(id: applicationID) else {
+            return XCTFail("Expected saved application")
+        }
 
         XCTAssertEqual(store.effectiveStatusName(for: application), "等待 HC")
         XCTAssertEqual(store.tags(for: application).first?.name, "重点")
