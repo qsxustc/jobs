@@ -1,5 +1,17 @@
 import SwiftUI
 
+private enum ApplicationEditorOptions {
+    static let industries = [
+        "互联网", "软件/信息技术", "银行", "金融", "制造业", "消费品/零售", "咨询",
+        "医疗/医药", "教育", "房地产/建筑", "能源/化工", "交通/物流", "文化传媒", "政府/公共事业"
+    ]
+    static let companyNatures = ["央企", "国企", "民企", "外企", "合资企业", "事业单位"]
+    static let projectTypes = ["秋招", "提前批", "春招", "校招", "暑期实习", "日常实习", "补录", "社招"]
+    static let positionCategories = ["研发", "算法", "数据", "产品", "设计", "测试", "运营", "市场", "销售", "职能", "管培生"]
+    static let locations = ["北京", "上海", "深圳", "广州", "杭州", "成都", "南京", "武汉", "西安", "苏州", "天津", "重庆", "全国", "远程"]
+    static let channels = ["官网", "内推", "招聘平台", "招聘会", "校园宣讲", "学校就业网", "邮件", "猎头"]
+}
+
 struct ApplicationEditorView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
@@ -56,15 +68,30 @@ struct ApplicationEditorView: View {
                             .help("选择已有公司")
                         }
                     }
-                    TextField("行业，例如互联网、金融", text: $form.companyIndustry)
-                    TextField("公司性质，例如民企、国企、外企", text: $form.companyNature)
+                    PresetTextField(
+                        "所属行业",
+                        value: $form.companyIndustry,
+                        options: ApplicationEditorOptions.industries,
+                        customPrompt: "输入自定义行业"
+                    )
+                    PresetTextField(
+                        "公司性质",
+                        value: $form.companyNature,
+                        options: ApplicationEditorOptions.companyNatures,
+                        customPrompt: "输入自定义公司性质"
+                    )
                     TextField("公司官网", text: $form.companyWebsite)
                     TextField("招聘官网", text: $form.recruitmentURL)
                 }
 
                 Section("招聘项目") {
                     TextField("项目名称，例如 2027 届秋季校园招聘", text: $form.projectName)
-                    TextField("项目类型，例如秋招、提前批", text: $form.projectType)
+                    PresetTextField(
+                        "项目类型",
+                        value: $form.projectType,
+                        options: ApplicationEditorOptions.projectTypes,
+                        customPrompt: "输入自定义项目类型"
+                    )
                     TextField("项目链接", text: $form.projectURL)
                     Toggle("设置项目截止时间", isOn: $hasProjectDeadline)
                     if hasProjectDeadline {
@@ -77,11 +104,26 @@ struct ApplicationEditorView: View {
 
                 Section("岗位") {
                     TextField("岗位名称", text: $form.position)
-                    TextField("岗位类别，例如研发、产品、设计", text: $form.category)
+                    PresetTextField(
+                        "岗位类别",
+                        value: $form.category,
+                        options: ApplicationEditorOptions.positionCategories,
+                        customPrompt: "输入自定义岗位类别"
+                    )
                     TextField("部门或事业群", text: $form.department)
-                    TextField("工作地点", text: $form.location)
+                    PresetTextField(
+                        "工作地点",
+                        value: $form.location,
+                        options: ApplicationEditorOptions.locations,
+                        customPrompt: "输入其他城市或多个地点"
+                    )
                     TextField("JD 链接", text: $form.jdURL)
-                    TextField("投递渠道，例如官网、内推、招聘会", text: $form.channel)
+                    PresetTextField(
+                        "投递渠道",
+                        value: $form.channel,
+                        options: ApplicationEditorOptions.channels,
+                        customPrompt: "输入自定义投递渠道"
+                    )
                     TextField("内推人或联系人", text: $form.referrer)
                 }
 
@@ -201,5 +243,72 @@ struct ApplicationEditorView: View {
         guard store.lastSaveError == nil else { return }
         Task { await ReminderService.refresh(store: store) }
         dismiss()
+    }
+}
+
+private struct PresetTextField: View {
+    private enum Selection: Hashable {
+        case unspecified
+        case preset(String)
+        case custom
+    }
+
+    private let title: String
+    private let options: [String]
+    private let customPrompt: String
+    @Binding private var value: String
+    @State private var selection: Selection
+
+    init(_ title: String, value: Binding<String>, options: [String], customPrompt: String) {
+        self.title = title
+        self.options = options
+        self.customPrompt = customPrompt
+        _value = value
+        _selection = State(initialValue: Self.selection(for: value.wrappedValue, options: options))
+    }
+
+    var body: some View {
+        Group {
+            Picker(title, selection: $selection) {
+                Text("请选择").tag(Selection.unspecified)
+                ForEach(options, id: \.self) { option in
+                    Text(option).tag(Selection.preset(option))
+                }
+                Divider()
+                Text("自定义").tag(Selection.custom)
+            }
+            if selection == .custom {
+                TextField(customPrompt, text: $value)
+            }
+        }
+        .onChange(of: selection) { _, newSelection in
+            switch newSelection {
+            case .unspecified:
+                value = ""
+            case let .preset(option):
+                value = option
+            case .custom:
+                let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if normalizedValue.isEmpty || options.contains(normalizedValue) {
+                    value = ""
+                }
+            }
+        }
+        .onChange(of: value) { _, newValue in
+            let resolvedSelection = Self.selection(for: newValue, options: options)
+            if selection == .custom, resolvedSelection == .unspecified {
+                return
+            }
+            if selection != resolvedSelection {
+                selection = resolvedSelection
+            }
+        }
+    }
+
+    private static func selection(for value: String, options: [String]) -> Selection {
+        let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedValue.isEmpty { return .unspecified }
+        if options.contains(normalizedValue) { return .preset(normalizedValue) }
+        return .custom
     }
 }
