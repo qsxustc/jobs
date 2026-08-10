@@ -32,6 +32,7 @@ struct RootView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selection: AppSection? = .dashboard
+    @State private var selectedApplicationID: UUID?
     @State private var showingNewApplication = false
 
     private var alertCount: Int {
@@ -108,11 +109,14 @@ struct RootView: View {
     private var detailView: some View {
         switch selection ?? .dashboard {
         case .dashboard: DashboardView(selection: $selection)
-        case .applications: ApplicationsView()
+        case .applications: ApplicationsView(selectedID: $selectedApplicationID)
         case .board: KanbanView()
         case .schedule: ScheduleView()
         case .todos: TodosView()
-        case .notifications: NotificationCenterView()
+        case .notifications: NotificationCenterView(
+            selection: $selection,
+            selectedApplicationID: $selectedApplicationID
+        )
         case .resumes: ResumeVersionsView()
         case .analytics: AnalyticsView()
         case .settings: SettingsView()

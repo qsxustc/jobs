@@ -2,6 +2,8 @@ import SwiftUI
 
 struct NotificationCenterView: View {
     @EnvironmentObject private var store: AppStore
+    @Binding var selection: AppSection?
+    @Binding var selectedApplicationID: UUID?
     @State private var editingEvent: ProcessEvent?
 
     private var alerts: [SmartAlertItem] {
@@ -55,7 +57,9 @@ struct NotificationCenterView: View {
                 Task { await ReminderService.refresh(store: store) }
             }
         case .staleApplication:
-            if let id = alert.applicationID { store.touchApplication(id: id) }
+            guard let id = alert.applicationID, store.application(id: id) != nil else { return }
+            selectedApplicationID = id
+            selection = .applications
         case .upcomingEvent, .missingReview:
             editingEvent = store.events.first { $0.id == alert.eventID }
         case .projectDeadline:
@@ -90,7 +94,7 @@ private struct SmartAlertCard: View {
         switch alert.kind {
         case .overdueTodo: return "标记完成"
         case .upcomingEvent: return "查看日程"
-        case .staleApplication: return "标记已跟进"
+        case .staleApplication: return "去处理"
         case .missingReview: return "补充复盘"
         case .projectDeadline: return nil
         }

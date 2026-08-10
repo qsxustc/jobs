@@ -9,7 +9,7 @@ private enum ApplicationStageFilter: Hashable {
 struct ApplicationsView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var selectedID: UUID?
+    @Binding var selectedID: UUID?
     @State private var searchText = ""
     @State private var stageFilter: ApplicationStageFilter = .all
     @State private var tagFilter: UUID?
