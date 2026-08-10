@@ -63,18 +63,21 @@ final class AppStore: ObservableObject {
     }
 
     var upcomingEvents: [ProcessEvent] {
-        events
+        let visibleApplicationIDs = Set(applications.lazy.filter { !$0.isArchived }.map(\.id))
+        return events
             .filter { event in
                 event.startsAt >= Date() && event.result.isPending &&
-                application(id: event.applicationID)?.isArchived == false
+                visibleApplicationIDs.contains(event.applicationID)
             }
             .sorted { $0.startsAt < $1.startsAt }
     }
 
     var openTodos: [TodoItem] {
-        todos
+        let archivedApplicationIDs = Set(applications.lazy.filter(\.isArchived).map(\.id))
+        return todos
             .filter { todo in
-                !todo.isCompleted && application(id: todo.applicationID)?.isArchived != true
+                !todo.isCompleted &&
+                !(todo.applicationID.map(archivedApplicationIDs.contains) ?? false)
             }
             .sorted {
                 switch ($0.dueAt, $1.dueAt) {
@@ -740,6 +743,9 @@ final class AppStore: ObservableObject {
             max(result.defaultReminderMinutes, 0),
             AppDataLimits.maximumReminderMinutes
         )
+        if ![0, 5, 15, 30, 60].contains(result.backgroundIdleMinutes) {
+            result.backgroundIdleMinutes = 15
+        }
         return result
     }
 

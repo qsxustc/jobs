@@ -91,6 +91,59 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(restored.settings.staleDays, 10)
     }
 
+    func testBackgroundIdleSettingIsBackwardCompatibleAndSanitized() throws {
+        let legacyData = Data(#"{"notificationsEnabled":true,"staleDays":10,"defaultReminderMinutes":120}"#.utf8)
+        let decoded = try JSONDecoder().decode(UserSettings.self, from: legacyData)
+        XCTAssertEqual(decoded.backgroundIdleMinutes, 15)
+
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        store.updateSettings(UserSettings(backgroundIdleMinutes: 999))
+        XCTAssertEqual(store.settings.backgroundIdleMinutes, 15)
+
+        store.updateSettings(UserSettings(backgroundIdleMinutes: 0))
+        XCTAssertEqual(store.settings.backgroundIdleMinutes, 0)
+    }
+
+    func testBackgroundIdleExitRechecksVisibleWindowsAfterDelay() async {
+        let recheckedVisibility = expectation(description: "退出前重新检查窗口")
+        var visibilityCheckCount = 0
+        var didTerminate = false
+        let service = BackgroundIdleService(
+            hasVisibleWindows: {
+                visibilityCheckCount += 1
+                if visibilityCheckCount == 2 {
+                    recheckedVisibility.fulfill()
+                    return true
+                }
+                return false
+            },
+            sleep: { _ in },
+            terminate: { didTerminate = true }
+        )
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        service.attach(store: store)
+
+        service.scheduleIdleExitIfNeeded()
+        await fulfillment(of: [recheckedVisibility], timeout: 1)
+
+        XCTAssertEqual(visibilityCheckCount, 2)
+        XCTAssertFalse(didTerminate)
+    }
+
+    func testBackgroundIdleExitTerminatesWhenWindowsRemainClosed() async {
+        let terminated = expectation(description: "后台闲置后退出")
+        let service = BackgroundIdleService(
+            hasVisibleWindows: { false },
+            sleep: { _ in },
+            terminate: { terminated.fulfill() }
+        )
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        service.attach(store: store)
+
+        service.scheduleIdleExitIfNeeded()
+        await fulfillment(of: [terminated], timeout: 1)
+    }
+
     func testVersionOneSnapshotMigratesWithoutLosingApplications() throws {
         let url = temporaryURL()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

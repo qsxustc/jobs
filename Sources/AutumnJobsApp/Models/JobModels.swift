@@ -207,9 +207,37 @@ struct StatusHistory: Identifiable, Codable, Hashable {
 }
 
 struct UserSettings: Codable, Hashable {
-    var notificationsEnabled = false
-    var staleDays = 7
-    var defaultReminderMinutes = 120
+    var notificationsEnabled: Bool
+    var staleDays: Int
+    var defaultReminderMinutes: Int
+    var backgroundIdleMinutes: Int
+
+    init(
+        notificationsEnabled: Bool = false,
+        staleDays: Int = 7,
+        defaultReminderMinutes: Int = 120,
+        backgroundIdleMinutes: Int = 15
+    ) {
+        self.notificationsEnabled = notificationsEnabled
+        self.staleDays = staleDays
+        self.defaultReminderMinutes = defaultReminderMinutes
+        self.backgroundIdleMinutes = backgroundIdleMinutes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case notificationsEnabled
+        case staleDays
+        case defaultReminderMinutes
+        case backgroundIdleMinutes
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        notificationsEnabled = try values.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? false
+        staleDays = try values.decodeIfPresent(Int.self, forKey: .staleDays) ?? 7
+        defaultReminderMinutes = try values.decodeIfPresent(Int.self, forKey: .defaultReminderMinutes) ?? 120
+        backgroundIdleMinutes = try values.decodeIfPresent(Int.self, forKey: .backgroundIdleMinutes) ?? 15
+    }
 }
 
 struct AppSnapshot: Codable {

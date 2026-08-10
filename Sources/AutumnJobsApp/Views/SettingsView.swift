@@ -77,6 +77,21 @@ struct SettingsView: View {
                     Button("保存提醒偏好") { saveSettings() }
                 }
 
+                SectionCard("后台节能", subtitle: "关闭所有窗口一段时间后释放应用占用的内存") {
+                    Picker("自动退出", selection: $localSettings.backgroundIdleMinutes) {
+                        Text("不自动退出").tag(0)
+                        Text("5 分钟后").tag(5)
+                        Text("15 分钟后").tag(15)
+                        Text("30 分钟后").tag(30)
+                        Text("1 小时后").tag(60)
+                    }
+                    .pickerStyle(.segmented)
+                    Text("窗口仍打开但应用处于后台时，由 macOS App Nap 自动休眠；关闭全部窗口后自动退出可进一步释放内存，已安排的系统通知不受影响。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("保存后台节能设置") { saveSettings(refreshReminders: false) }
+                }
+
                 SectionCard("数据导入与导出", subtitle: "CSV 适合使用 Excel 编辑，JSON 备份包含全部面试和待办") {
                     HStack(spacing: 12) {
                         dataAction("导出 CSV", icon: "tablecells", action: exportCSV)
@@ -280,10 +295,14 @@ struct SettingsView: View {
         }
     }
 
-    private func saveSettings() {
+    private func saveSettings(refreshReminders: Bool = true) {
         store.updateSettings(localSettings)
         guard store.lastSaveError == nil else {
             resultMessage = store.lastSaveError
+            return
+        }
+        guard refreshReminders else {
+            resultMessage = "后台节能设置已保存。"
             return
         }
         Task {

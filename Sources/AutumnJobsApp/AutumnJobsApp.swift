@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct AutumnJobs: App {
     @StateObject private var store = AppStore()
+    @NSApplicationDelegateAdaptor(BackgroundIdleService.self) private var backgroundIdleService
 
     var body: some Scene {
         WindowGroup("秋招助手") {
@@ -10,6 +11,7 @@ struct AutumnJobs: App {
                 .environmentObject(store)
                 .frame(minWidth: 1_080, minHeight: 700)
                 .task {
+                    backgroundIdleService.attach(store: store)
                     await ReminderService.refresh(store: store)
                 }
         }
