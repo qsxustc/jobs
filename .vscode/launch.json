@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:jobs}",
+            "name": "Debug AutumnJobs",
+            "target": "AutumnJobs",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug AutumnJobs"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:jobs}",
+            "name": "Release AutumnJobs",
+            "target": "AutumnJobs",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release AutumnJobs"
+        }
+    ]
+}
