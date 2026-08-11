@@ -290,7 +290,19 @@ final class AppStore: ObservableObject {
         }
 
         var projectID: UUID?
-        let normalizedProjectName = data.projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedProjectName = data.projectName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedProjectType = data.projectType.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedProjectURL = data.projectURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 项目类型/链接/截止时间都挂在招聘项目上，只有项目名非空时才会创建项目。
+        // 当用户没填名称却设置了类型（或链接/截止时间）时，用项目类型兜底生成一个名称，
+        // 否则用户选择的类型无处存储，关闭后再打开会退回默认值“秋招”。
+        let hasProjectDetails = !trimmedProjectType.isEmpty ||
+            !trimmedProjectURL.isEmpty ||
+            data.projectDeadline != nil
+        let fallbackProjectName = trimmedProjectType.isEmpty ? "未命名项目" : trimmedProjectType
+        let normalizedProjectName = trimmedProjectName.isEmpty
+            ? (hasProjectDetails ? fallbackProjectName : "")
+            : trimmedProjectName
         if !normalizedProjectName.isEmpty {
             if let index = projects.firstIndex(where: {
                 $0.companyID == companyID && $0.name.caseInsensitiveCompare(normalizedProjectName) == .orderedSame
