@@ -29,4 +29,14 @@ enum AppFormatters {
         formatter.unitsStyle = .short
         return formatter
     }()
+
+    static func reminderLeadTime(_ minutes: Int) -> String {
+        if minutes.isMultiple(of: 1_440) {
+            return "\(minutes / 1_440) 天"
+        }
+        if minutes.isMultiple(of: 60) {
+            return "\(minutes / 60) 小时"
+        }
+        return "\(minutes) 分钟"
+    }
 }

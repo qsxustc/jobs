@@ -562,6 +562,51 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.projects.first?.deadline, deadline)
     }
 
+    func testNewApplicationCanUpdateExplicitlySelectedCompanyAndProject() throws {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var original = ApplicationFormData()
+        original.companyName = "明确选择测试公司"
+        original.companyIndustry = "互联网"
+        original.projectName = "2027 校招"
+        original.projectType = "秋招"
+        original.position = "后端工程师"
+        let originalID = store.saveApplication(data: original)
+
+        let originalApplication = try XCTUnwrap(store.application(id: originalID))
+        var additional = store.formData(for: originalApplication)
+        additional.companyIndustry = "软件/信息技术"
+        additional.projectType = "提前批"
+        additional.position = "客户端工程师"
+        store.saveApplication(data: additional)
+
+        XCTAssertEqual(store.applications.count, 2)
+        XCTAssertEqual(store.companies.first?.industry, "软件/信息技术")
+        XCTAssertEqual(store.projects.first?.type, "提前批")
+    }
+
+    func testManuallyEnteredMatchingNamesDoNotOverwriteSharedMetadata() {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var original = ApplicationFormData()
+        original.companyName = "同名保护测试公司"
+        original.companyIndustry = "金融"
+        original.projectName = "2027 提前批"
+        original.projectType = "提前批"
+        original.position = "风控工程师"
+        store.saveApplication(data: original)
+
+        var additional = ApplicationFormData()
+        additional.companyName = original.companyName
+        additional.companyIndustry = ""
+        additional.projectName = original.projectName
+        additional.projectType = "秋招"
+        additional.position = "数据工程师"
+        store.saveApplication(data: additional)
+
+        XCTAssertEqual(store.applications.count, 2)
+        XCTAssertEqual(store.companies.first?.industry, "金融")
+        XCTAssertEqual(store.projects.first?.type, "提前批")
+    }
+
     func testMovingApplicationToExistingCompanyDoesNotOverwriteTargetMetadata() {
         let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
         var source = ApplicationFormData()

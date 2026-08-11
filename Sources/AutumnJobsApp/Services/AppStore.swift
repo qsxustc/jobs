@@ -175,11 +175,13 @@ final class AppStore: ObservableObject {
         let company = company(for: application)
         let project = project(for: application)
         return ApplicationFormData(
+            selectedCompanyID: company?.id,
             companyName: company?.name ?? "",
             companyIndustry: company?.industry ?? "",
             companyNature: company?.nature ?? "",
             companyWebsite: company?.website ?? "",
             recruitmentURL: company?.recruitmentURL ?? "",
+            selectedProjectID: project?.id,
             projectName: project?.name ?? "",
             projectType: project?.type ?? "秋招",
             projectURL: project?.url ?? "",
@@ -266,7 +268,9 @@ final class AppStore: ObservableObject {
         }
         let companyID: UUID
         if let index = companies.firstIndex(where: { $0.name.caseInsensitiveCompare(normalizedCompanyName) == .orderedSame }) {
-            if updateSharedMetadata, originalApplication?.companyID == companies[index].id {
+            let isEditingSelectedCompany = originalApplication?.companyID == companies[index].id ||
+                data.selectedCompanyID == companies[index].id
+            if updateSharedMetadata, isEditingSelectedCompany {
                 companies[index].industry = data.companyIndustry
                 companies[index].nature = data.companyNature
                 companies[index].website = data.companyWebsite
@@ -291,7 +295,9 @@ final class AppStore: ObservableObject {
             if let index = projects.firstIndex(where: {
                 $0.companyID == companyID && $0.name.caseInsensitiveCompare(normalizedProjectName) == .orderedSame
             }) {
-                if updateSharedMetadata, originalApplication?.projectID == projects[index].id {
+                let isEditingSelectedProject = originalApplication?.projectID == projects[index].id ||
+                    data.selectedProjectID == projects[index].id
+                if updateSharedMetadata, isEditingSelectedProject {
                     projects[index].type = data.projectType
                     projects[index].url = data.projectURL
                     projects[index].deadline = data.projectDeadline

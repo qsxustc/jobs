@@ -216,11 +216,13 @@ struct ApplicationEditorView: View {
     }
 
     private func apply(_ company: Company) {
+        form.selectedCompanyID = company.id
         form.companyName = company.name
         form.companyIndustry = company.industry
         form.companyNature = company.nature
         form.companyWebsite = company.website
         form.recruitmentURL = company.recruitmentURL
+        form.selectedProjectID = nil
         form.projectName = ""
         form.projectType = "秋招"
         form.projectURL = ""
@@ -230,6 +232,7 @@ struct ApplicationEditorView: View {
             .filter({ $0.companyID == company.id })
             .sorted(by: { ($0.deadline ?? .distantFuture) < ($1.deadline ?? .distantFuture) })
             .first {
+            form.selectedProjectID = project.id
             form.projectName = project.name
             form.projectType = project.type
             form.projectURL = project.url
@@ -269,7 +272,10 @@ private struct PresetTextField: View {
 
     var body: some View {
         Group {
-            Picker(title, selection: $selection) {
+            Picker(title, selection: Binding(
+                get: { selection },
+                set: { updateSelection($0) }
+            )) {
                 Text("请选择").tag(Selection.unspecified)
                 ForEach(options, id: \.self) { option in
                     Text(option).tag(Selection.preset(option))
@@ -281,19 +287,6 @@ private struct PresetTextField: View {
                 TextField(customPrompt, text: $value)
             }
         }
-        .onChange(of: selection) { _, newSelection in
-            switch newSelection {
-            case .unspecified:
-                value = ""
-            case let .preset(option):
-                value = option
-            case .custom:
-                let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if normalizedValue.isEmpty || options.contains(normalizedValue) {
-                    value = ""
-                }
-            }
-        }
         .onChange(of: value) { _, newValue in
             let resolvedSelection = Self.selection(for: newValue, options: options)
             if selection == .custom, resolvedSelection == .unspecified {
@@ -301,6 +294,21 @@ private struct PresetTextField: View {
             }
             if selection != resolvedSelection {
                 selection = resolvedSelection
+            }
+        }
+    }
+
+    private func updateSelection(_ newSelection: Selection) {
+        selection = newSelection
+        switch newSelection {
+        case .unspecified:
+            value = ""
+        case let .preset(option):
+            value = option
+        case .custom:
+            let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedValue.isEmpty || options.contains(normalizedValue) {
+                value = ""
             }
         }
     }

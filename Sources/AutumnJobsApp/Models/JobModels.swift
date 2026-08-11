@@ -257,11 +257,13 @@ struct AppSnapshot: Codable {
 }
 
 struct ApplicationFormData {
+    var selectedCompanyID: UUID?
     var companyName = ""
     var companyIndustry = ""
     var companyNature = ""
     var companyWebsite = ""
     var recruitmentURL = ""
+    var selectedProjectID: UUID?
     var projectName = ""
     var projectType = "秋招"
     var projectURL = ""

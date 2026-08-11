@@ -85,6 +85,12 @@ struct EventEditorView: View {
                     reminderToggle("提前 1 天", minutes: 1_440)
                     reminderToggle("提前 2 小时", minutes: 120)
                     reminderToggle("提前 15 分钟", minutes: 15)
+                    ForEach(customReminderMinutes, id: \.self) { minutes in
+                        reminderToggle(
+                            "提前 \(AppFormatters.reminderLeadTime(minutes))（自定义）",
+                            minutes: minutes
+                        )
+                    }
                     if !store.settings.notificationsEnabled {
                         Label("需要在“设置”中开启系统通知", systemImage: "bell.slash")
                             .font(.caption)
@@ -147,6 +153,12 @@ struct EventEditorView: View {
             let previousDuration = max(0, endsAt.timeIntervalSince(oldValue))
             form.endsAt = newValue.addingTimeInterval(previousDuration)
         }
+    }
+
+    private var customReminderMinutes: [Int] {
+        form.reminderMinutes
+            .filter { ![15, 120, 1_440].contains($0) }
+            .sorted(by: >)
     }
 
     private func reminderToggle(_ title: String, minutes: Int) -> some View {

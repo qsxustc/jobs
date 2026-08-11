@@ -40,7 +40,7 @@ struct TodoEditorView: View {
                     }
                     Picker("关联投递", selection: $form.applicationID) {
                         Text("不关联岗位").tag(nil as UUID?)
-                        ForEach(store.activeApplications) { application in
+                        ForEach(selectableApplications) { application in
                             Text("\(store.company(for: application)?.name ?? "未知公司") · \(application.position)")
                                 .tag(application.id as UUID?)
                         }
@@ -64,6 +64,12 @@ struct TodoEditorView: View {
                                 Text("15 分钟").tag(15)
                                 Text("2 小时").tag(120)
                                 Text("1 天").tag(1_440)
+                                if let reminderMinutes = form.reminderMinutes,
+                                   ![15, 120, 1_440].contains(reminderMinutes) {
+                                    Divider()
+                                    Text("\(AppFormatters.reminderLeadTime(reminderMinutes))（自定义）")
+                                        .tag(reminderMinutes)
+                                }
                             }
                         }
                     }
@@ -88,6 +94,12 @@ struct TodoEditorView: View {
         }
         .onChange(of: hasReminder) { _, enabled in
             form.reminderMinutes = enabled ? (form.reminderMinutes ?? 120) : nil
+        }
+    }
+
+    private var selectableApplications: [JobApplication] {
+        store.applications.filter { application in
+            !application.isArchived || application.id == form.applicationID
         }
     }
 

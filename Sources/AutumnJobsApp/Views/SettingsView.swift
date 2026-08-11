@@ -67,12 +67,17 @@ struct SettingsView: View {
                         }
                     }
                     Divider()
-                    Stepper("流程超过 \(localSettings.staleDays) 天未更新时提示跟进", value: $localSettings.staleDays, in: 1...30)
+                    Stepper("流程超过 \(localSettings.staleDays) 天未更新时提示跟进", value: $localSettings.staleDays, in: 1...365)
                     Picker("新建待办的默认提醒", selection: $localSettings.defaultReminderMinutes) {
                         Text("不提醒").tag(0)
                         Text("提前 15 分钟").tag(15)
                         Text("提前 2 小时").tag(120)
                         Text("提前 1 天").tag(1_440)
+                        if ![0, 15, 120, 1_440].contains(localSettings.defaultReminderMinutes) {
+                            Divider()
+                            Text("提前 \(AppFormatters.reminderLeadTime(localSettings.defaultReminderMinutes))（自定义）")
+                                .tag(localSettings.defaultReminderMinutes)
+                        }
                     }
                     Button("保存提醒偏好") { saveSettings() }
                 }
