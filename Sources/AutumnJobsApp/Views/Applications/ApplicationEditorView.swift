@@ -260,20 +260,22 @@ private struct PresetTextField: View {
     private let options: [String]
     private let customPrompt: String
     @Binding private var value: String
-    @State private var selection: Selection
+    @State private var isChoosingCustom: Bool
 
     init(_ title: String, value: Binding<String>, options: [String], customPrompt: String) {
         self.title = title
         self.options = options
         self.customPrompt = customPrompt
         _value = value
-        _selection = State(initialValue: Self.selection(for: value.wrappedValue, options: options))
+        _isChoosingCustom = State(
+            initialValue: Self.selection(for: value.wrappedValue, options: options) == .custom
+        )
     }
 
     var body: some View {
         Group {
             Picker(title, selection: Binding(
-                get: { selection },
+                get: { currentSelection },
                 set: { updateSelection($0) }
             )) {
                 Text("请选择").tag(Selection.unspecified)
@@ -283,29 +285,40 @@ private struct PresetTextField: View {
                 Divider()
                 Text("自定义").tag(Selection.custom)
             }
-            if selection == .custom {
+            if currentSelection == .custom {
                 TextField(customPrompt, text: $value)
             }
         }
         .onChange(of: value) { _, newValue in
             let resolvedSelection = Self.selection(for: newValue, options: options)
-            if selection == .custom, resolvedSelection == .unspecified {
-                return
-            }
-            if selection != resolvedSelection {
-                selection = resolvedSelection
+            switch resolvedSelection {
+            case .custom:
+                isChoosingCustom = true
+            case .preset:
+                isChoosingCustom = false
+            case .unspecified:
+                // Keep the custom text field visible while the user is entering a
+                // new value. Explicitly choosing “请选择” clears this flag below.
+                break
             }
         }
     }
 
+    private var currentSelection: Selection {
+        if isChoosingCustom { return .custom }
+        return Self.selection(for: value, options: options)
+    }
+
     private func updateSelection(_ newSelection: Selection) {
-        selection = newSelection
         switch newSelection {
         case .unspecified:
+            isChoosingCustom = false
             value = ""
         case let .preset(option):
+            isChoosingCustom = false
             value = option
         case .custom:
+            isChoosingCustom = true
             let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if normalizedValue.isEmpty || options.contains(normalizedValue) {
                 value = ""
