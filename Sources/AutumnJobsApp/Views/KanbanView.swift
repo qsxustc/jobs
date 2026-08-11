@@ -2,7 +2,6 @@ import SwiftUI
 
 struct KanbanView: View {
     @EnvironmentObject private var store: AppStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var searchText = ""
     @State private var editingApplication: JobApplication?
     @State private var showingNewApplication = false
@@ -22,45 +21,29 @@ struct KanbanView: View {
     }
 
     var body: some View {
-        ZStack {
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 14) {
-                    ForEach(ApplicationStatus.allCases) { status in
-                        KanbanColumn(status: status, applications: applications(for: status)) { application in
-                            editingApplication = application
-                        }
-                    }
-                    ForEach(store.customStages.sorted { $0.order < $1.order }) { stage in
-                        let stageApplications = store.activeApplications
-                            .filter { $0.customStageID == stage.id }
-                            .filter { application in
-                                searchText.isEmpty
-                                || (store.company(for: application)?.name ?? "").localizedCaseInsensitiveContains(searchText)
-                                || application.position.localizedCaseInsensitiveContains(searchText)
-                            }
-                            .sorted { $0.updatedAt > $1.updatedAt }
-                        CustomKanbanColumn(stage: stage, applications: stageApplications) { application in
-                            editingApplication = application
-                        }
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: 14) {
+                ForEach(ApplicationStatus.allCases) { status in
+                    KanbanColumn(status: status, applications: applications(for: status)) { application in
+                        editingApplication = application
                     }
                 }
-                .padding(20)
+                ForEach(store.customStages.sorted { $0.order < $1.order }) { stage in
+                    let stageApplications = store.activeApplications
+                        .filter { $0.customStageID == stage.id }
+                        .filter { application in
+                            searchText.isEmpty
+                            || (store.company(for: application)?.name ?? "").localizedCaseInsensitiveContains(searchText)
+                            || application.position.localizedCaseInsensitiveContains(searchText)
+                        }
+                        .sorted { $0.updatedAt > $1.updatedAt }
+                    CustomKanbanColumn(stage: stage, applications: stageApplications) { application in
+                        editingApplication = application
+                    }
+                }
             }
-
-            if let application = editingApplication {
-                Color.black.opacity(0.18)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: closeEditor)
-
-                ApplicationEditorView(application: application, onDismiss: closeEditor)
-                    .background(.background, in: RoundedRectangle(cornerRadius: 12))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: .black.opacity(0.24), radius: 24, y: 10)
-                    .transition(.scale(scale: 0.98).combined(with: .opacity))
-            }
+            .padding(20)
         }
-        .animation(reduceMotion ? nil : AppMotion.quick, value: editingApplication?.id)
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("流程看板")
         .searchable(text: $searchText, placement: .toolbar, prompt: "搜索公司或岗位")
@@ -72,13 +55,12 @@ struct KanbanView: View {
             }
             .buttonStyle(.borderedProminent)
         }
+        .sheet(item: $editingApplication) { application in
+            ApplicationEditorView(application: application)
+        }
         .sheet(isPresented: $showingNewApplication) {
             ApplicationEditorView()
         }
-    }
-
-    private func closeEditor() {
-        editingApplication = nil
     }
 }
 
