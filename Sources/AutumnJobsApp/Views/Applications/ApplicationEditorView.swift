@@ -16,13 +16,15 @@ struct ApplicationEditorView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
     let application: JobApplication?
+    private let onDismiss: (() -> Void)?
     @State private var form = ApplicationFormData()
     @State private var hasAppliedDate = false
     @State private var hasProjectDeadline = false
     @State private var didLoad = false
 
-    init(application: JobApplication? = nil) {
+    init(application: JobApplication? = nil, onDismiss: (() -> Void)? = nil) {
         self.application = application
+        self.onDismiss = onDismiss
     }
 
     private var canSave: Bool {
@@ -41,7 +43,7 @@ struct ApplicationEditorView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("取消") { dismiss() }
+                Button("取消", action: close)
                     .keyboardShortcut(.cancelAction)
                 Button("保存") { save() }
                     .buttonStyle(.borderedProminent)
@@ -245,7 +247,15 @@ struct ApplicationEditorView: View {
         store.saveApplication(id: application?.id, data: form)
         guard store.lastSaveError == nil else { return }
         Task { await ReminderService.refresh(store: store) }
-        dismiss()
+        close()
+    }
+
+    private func close() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            dismiss()
+        }
     }
 }
 

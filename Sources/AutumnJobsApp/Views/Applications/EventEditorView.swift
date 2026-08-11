@@ -5,14 +5,16 @@ struct EventEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let applicationID: UUID
     let event: ProcessEvent?
+    private let onDismiss: (() -> Void)?
     @State private var form = EventFormData()
     @State private var hasEndTime = false
     @State private var hasRound = true
     @State private var didLoad = false
 
-    init(applicationID: UUID, event: ProcessEvent? = nil) {
+    init(applicationID: UUID, event: ProcessEvent? = nil, onDismiss: (() -> Void)? = nil) {
         self.applicationID = applicationID
         self.event = event
+        self.onDismiss = onDismiss
     }
 
     private var canSave: Bool {
@@ -29,7 +31,7 @@ struct EventEditorView: View {
                 Text(event == nil ? "添加流程" : "编辑流程")
                     .font(.title2.bold())
                 Spacer()
-                Button("取消") { dismiss() }
+                Button("取消", action: close)
                     .keyboardShortcut(.cancelAction)
                 Button("保存") { save() }
                     .buttonStyle(.borderedProminent)
@@ -188,6 +190,14 @@ struct EventEditorView: View {
         store.saveEvent(id: event?.id, applicationID: applicationID, data: form)
         guard store.lastSaveError == nil else { return }
         Task { await ReminderService.refresh(store: store) }
-        dismiss()
+        close()
+    }
+
+    private func close() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            dismiss()
+        }
     }
 }

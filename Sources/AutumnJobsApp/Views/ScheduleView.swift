@@ -50,67 +50,90 @@ struct ScheduleView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Picker("范围", selection: $scope) {
-                    ForEach(ScheduleScope.allCases) { item in
-                        Text(item.rawValue).tag(item)
+        ZStack {
+            VStack(spacing: 0) {
+                HStack {
+                    Picker("范围", selection: $scope) {
+                        ForEach(ScheduleScope.allCases) { item in
+                            Text(item.rawValue).tag(item)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 360)
+                    Picker("视图", selection: $displayMode) {
+                        ForEach(ScheduleDisplayMode.allCases) { item in
+                            Text(item.rawValue).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 150)
+                    Spacer()
+                    Text("\(visibleEvents.count) 项日程")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
                 }
-                .pickerStyle(.segmented)
-                .frame(maxWidth: 360)
-                Picker("视图", selection: $displayMode) {
-                    ForEach(ScheduleDisplayMode.allCases) { item in
-                        Text(item.rawValue).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 150)
-                Spacer()
-                Text("\(visibleEvents.count) 项日程")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-            }
-            .padding(16)
-            Divider()
-            Group {
-                if displayMode == .calendar {
-                    MonthCalendarView(month: $displayedMonth, events: visibleEvents) { event in
-                        editingEvent = event
-                    }
-                } else if visibleEvents.isEmpty {
-                    EmptyStateView(icon: "calendar.badge.plus", title: "没有日程", message: "从右上角选择一个岗位并添加面试或笔试。")
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 20) {
-                            ForEach(groupedEvents, id: \.0) { day, events in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(day, format: .dateTime.month().day().weekday(.wide))
-                                        .font(.headline)
-                                        .padding(.horizontal, 4)
-                                    ForEach(events) { event in
-                                        ScheduleEventCard(event: event) {
-                                            editingEvent = event
+                .padding(16)
+                Divider()
+                Group {
+                    if displayMode == .calendar {
+                        MonthCalendarView(month: $displayedMonth, events: visibleEvents) { event in
+                            editingEvent = event
+                        }
+                    } else if visibleEvents.isEmpty {
+                        EmptyStateView(icon: "calendar.badge.plus", title: "没有日程", message: "从右上角选择一个岗位并添加面试或笔试。")
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 20) {
+                                ForEach(groupedEvents, id: \.0) { day, events in
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text(day, format: .dateTime.month().day().weekday(.wide))
+                                            .font(.headline)
+                                            .padding(.horizontal, 4)
+                                        ForEach(events) { event in
+                                            ScheduleEventCard(event: event) {
+                                                editingEvent = event
+                                            }
+                                            .transition(
+                                                .opacity
+                                                    .combined(with: .scale(scale: 0.98))
+                                                    .combined(with: .move(edge: .top))
+                                            )
                                         }
-                                        .transition(
-                                            .opacity
-                                                .combined(with: .scale(scale: 0.98))
-                                                .combined(with: .move(edge: .top))
-                                        )
                                     }
                                 }
                             }
+                            .padding(20)
+                            .frame(maxWidth: 820)
+                            .frame(maxWidth: .infinity)
+                            .animation(reduceMotion ? nil : AppMotion.standard, value: visibleEvents.map(\.id))
                         }
-                        .padding(20)
-                        .frame(maxWidth: 820)
-                        .frame(maxWidth: .infinity)
-                        .animation(reduceMotion ? nil : AppMotion.standard, value: visibleEvents.map(\.id))
                     }
                 }
+                .id(displayMode)
+                .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 6)))
             }
-            .id(displayMode)
-            .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 6)))
+
+            if editingEvent != nil || selectedApplicationID != nil {
+                Color.black.opacity(0.18)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: closeEditor)
+
+                if let event = editingEvent {
+                    EventEditorView(
+                        applicationID: event.applicationID,
+                        event: event,
+                        onDismiss: closeEditor
+                    )
+                    .editorOverlayStyle()
+                    .transition(.scale(scale: 0.98).combined(with: .opacity))
+                } else if let selectedApplicationID {
+                    EventEditorView(applicationID: selectedApplicationID, onDismiss: closeEditor)
+                        .editorOverlayStyle()
+                        .transition(.scale(scale: 0.98).combined(with: .opacity))
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .navigationTitle("日程与面试")
@@ -136,17 +159,21 @@ struct ScheduleView: View {
             }
             .buttonStyle(.borderedProminent)
         }
-        .sheet(item: $editingEvent) { event in
-            EventEditorView(applicationID: event.applicationID, event: event)
-        }
-        .sheet(isPresented: Binding(
-            get: { selectedApplicationID != nil },
-            set: { if !$0 { selectedApplicationID = nil } }
-        )) {
-            if let selectedApplicationID {
-                EventEditorView(applicationID: selectedApplicationID)
-            }
-        }
+        .animation(reduceMotion ? nil : AppMotion.quick, value: editingEvent?.id)
+        .animation(reduceMotion ? nil : AppMotion.quick, value: selectedApplicationID)
+    }
+
+    private func closeEditor() {
+        editingEvent = nil
+        selectedApplicationID = nil
+    }
+}
+
+private extension View {
+    func editorOverlayStyle() -> some View {
+        background(.background, in: RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .shadow(color: .black.opacity(0.24), radius: 24, y: 10)
     }
 }
 
