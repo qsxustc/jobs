@@ -7,6 +7,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case schedule = "日程与面试"
     case todos = "待办事项"
     case notifications = "提醒中心"
+    case mailRecognition = "邮件识别"
     case resumes = "简历版本"
     case analytics = "数据分析"
     case settings = "设置"
@@ -21,6 +22,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .schedule: return "calendar"
         case .todos: return "checklist"
         case .notifications: return "bell.badge"
+        case .mailRecognition: return "envelope.open"
         case .resumes: return "doc.text"
         case .analytics: return "chart.xyaxis.line"
         case .settings: return "gearshape"
@@ -117,6 +119,7 @@ struct RootView: View {
             selection: $selection,
             selectedApplicationID: $selectedApplicationID
         )
+        case .mailRecognition: MailRecognitionView()
         case .resumes: ResumeVersionsView()
         case .analytics: AnalyticsView()
         case .settings: SettingsView()

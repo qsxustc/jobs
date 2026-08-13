@@ -109,6 +109,122 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.applications.count, 1)
     }
 
+    func testMailNoticeParserExtractsChineseInterviewNotice() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 8,
+            day: 13,
+            hour: 10
+        )))
+        let mail = """
+        主题：【星海科技】2027 届校园招聘一面邀请
+        公司名称：星海科技
+        应聘岗位：macOS 开发工程师
+        您好，邀请您参加第一轮面试，安排如下：
+        面试时间：2026年8月18日 下午2:30-3:30
+        面试形式：腾讯会议
+        会议链接：https://meeting.example.com/abc
+        联系人：王老师
+        """
+
+        let result = MailNoticeParser.analyze(mail, now: now, calendar: calendar)
+
+        XCTAssertTrue(result.isLikelyNotice)
+        XCTAssertEqual(result.type, .interview)
+        XCTAssertEqual(result.companyName, "星海科技")
+        XCTAssertEqual(result.position, "macOS 开发工程师")
+        XCTAssertEqual(result.round, 1)
+        XCTAssertEqual(result.format, .online)
+        XCTAssertEqual(result.meetingURL, "https://meeting.example.com/abc")
+        XCTAssertEqual(result.interviewer, "王老师")
+        let startsAt = try XCTUnwrap(result.startsAt)
+        XCTAssertEqual(calendar.component(.hour, from: startsAt), 14)
+        XCTAssertEqual(calendar.component(.minute, from: startsAt), 30)
+        let endsAt = try XCTUnwrap(result.endsAt)
+        XCTAssertEqual(calendar.component(.hour, from: endsAt), 15)
+        XCTAssertEqual(calendar.component(.minute, from: endsAt), 30)
+        XCTAssertGreaterThanOrEqual(result.confidence, 80)
+    }
+
+    func testMailNoticeParserInfersNextYearAndDefaultsMissingTime() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 12,
+            day: 30,
+            hour: 12
+        )))
+
+        let result = MailNoticeParser.analyze(
+            "主题：在线测评通知\n请于1月2日参加在线测评，作答链接：https://exam.example.com/a",
+            now: now,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(result.type, .assessment)
+        XCTAssertEqual(result.format, .online)
+        let startsAt = try XCTUnwrap(result.startsAt)
+        XCTAssertEqual(calendar.component(.year, from: startsAt), 2027)
+        XCTAssertEqual(calendar.component(.hour, from: startsAt), 9)
+        XCTAssertTrue(result.warnings.contains { $0.contains("09:00") })
+    }
+
+    func testMailNoticeParserDoesNotTreatRejectionAsNewSchedule() {
+        let mail = """
+        主题：面试结果通知
+        感谢您参加本次面试。很遗憾，您未通过本轮面试，招聘流程终止。
+        """
+
+        let result = MailNoticeParser.analyze(mail)
+
+        XCTAssertFalse(result.isLikelyNotice)
+        XCTAssertTrue(result.warnings.contains { $0.contains("结果通知") })
+    }
+
+    func testDuplicateEventDetectionUsesApplicationTypeAndMinuteTolerance() {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var applicationForm = ApplicationFormData()
+        applicationForm.companyName = "重复检测公司"
+        applicationForm.position = "算法工程师"
+        let applicationID = store.saveApplication(data: applicationForm)
+
+        let start = Date(timeIntervalSince1970: 2_000_000_000)
+        var eventForm = EventFormData()
+        eventForm.type = .interview
+        eventForm.startsAt = start
+        let eventID = store.saveEvent(applicationID: applicationID, data: eventForm)
+
+        XCTAssertEqual(
+            store.duplicateEvent(
+                applicationID: applicationID,
+                type: .interview,
+                startsAt: start.addingTimeInterval(45)
+            )?.id,
+            eventID
+        )
+        XCTAssertNil(store.duplicateEvent(
+            applicationID: applicationID,
+            type: .writtenTest,
+            startsAt: start
+        ))
+        XCTAssertNil(store.duplicateEvent(
+            applicationID: applicationID,
+            type: .interview,
+            startsAt: start.addingTimeInterval(61)
+        ))
+
+        eventForm.result = .cancelled
+        store.saveEvent(id: eventID, applicationID: applicationID, data: eventForm)
+        XCTAssertNil(store.duplicateEvent(
+            applicationID: applicationID,
+            type: .interview,
+            startsAt: start
+        ))
+    }
+
     func testReminderTriggerPreservesSeconds() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))

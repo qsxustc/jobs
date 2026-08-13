@@ -139,6 +139,23 @@ final class AppStore: ObservableObject {
         events.filter { $0.applicationID == applicationID }.sorted { $0.startsAt < $1.startsAt }
     }
 
+    func duplicateEvent(
+        applicationID: UUID,
+        type: EventType,
+        startsAt: Date,
+        excluding excludedID: UUID? = nil,
+        tolerance: TimeInterval = 60
+    ) -> ProcessEvent? {
+        let allowedDifference = max(0, tolerance)
+        return events.first { event in
+            event.id != excludedID &&
+            event.applicationID == applicationID &&
+            event.type == type &&
+            event.result != .cancelled &&
+            abs(event.startsAt.timeIntervalSince(startsAt)) <= allowedDifference
+        }
+    }
+
     func todos(for applicationID: UUID) -> [TodoItem] {
         todos.filter { $0.applicationID == applicationID }.sorted {
             ($0.dueAt ?? .distantFuture) < ($1.dueAt ?? .distantFuture)
