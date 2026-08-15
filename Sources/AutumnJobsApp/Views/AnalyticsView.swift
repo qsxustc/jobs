@@ -32,9 +32,9 @@ struct AnalyticsView: View {
     @EnvironmentObject private var store: AppStore
 
     private var total: Int { store.activeApplications.count }
-    private var applied: [JobApplication] { store.activeApplications.filter { $0.appliedAt != nil || $0.status.sortOrder >= ApplicationStatus.applied.sortOrder } }
+    private var applied: [JobApplication] { store.activeApplications.filter(store.isSubmitted) }
     private var responded: [JobApplication] {
-        applied.filter { $0.customStageID != nil || ![.applied, .evaluating, .toApply].contains($0.status) }
+        applied.filter(store.hasResponse)
     }
     private var interviewedIDs: Set<UUID> {
         let appliedIDs = Set(applied.map(\.id))
@@ -43,29 +43,19 @@ struct AnalyticsView: View {
             .map(\.applicationID))
     }
     private var offerCount: Int {
-        store.activeApplications.filter { $0.customStageID == nil && [.offer, .accepted].contains($0.status) }.count
+        store.applicationCount(in: .offer)
     }
 
     private var stageCounts: [StageCount] {
-        let builtIn = ApplicationStatus.allCases.compactMap { status -> StageCount? in
-            let count = store.activeApplications.filter { $0.customStageID == nil && $0.status == status }.count
+        ApplicationAnalysisCategory.allCases.compactMap { category -> StageCount? in
+            let count = store.applicationCount(in: category)
             return count == 0 ? nil : StageCount(
-                id: "built-in-\(status.rawValue)",
-                name: status.rawValue,
+                id: category.id,
+                name: category.rawValue,
                 count: count,
-                color: status.color
+                color: category.color
             )
         }
-        let custom = store.customStages.compactMap { stage -> StageCount? in
-            let count = store.activeApplications.filter { $0.customStageID == stage.id }.count
-            return count == 0 ? nil : StageCount(
-                id: "custom-\(stage.id)",
-                name: stage.name,
-                count: count,
-                color: .jobColor(stage.colorKey)
-            )
-        }
-        return builtIn + custom
     }
 
     private var channelCounts: [ChannelCount] {
@@ -93,7 +83,7 @@ struct AnalyticsView: View {
                 resume: resume,
                 applications: resumeApplications.count,
                 interviews: resumeApplications.filter { interviewedIDs.contains($0.id) }.count,
-                offers: resumeApplications.filter { $0.customStageID == nil && [.offer, .accepted].contains($0.status) }.count
+                offers: resumeApplications.filter { store.analysisCategory(for: $0) == .offer }.count
             )
         }
         .filter { $0.applications > 0 }
@@ -144,7 +134,7 @@ struct AnalyticsView: View {
                             .frame(height: 250)
                         }
                     }
-                    SectionCard("状态分布", subtitle: "当前所有机会的流程阶段") {
+                    SectionCard("状态分布", subtitle: "按统一分析分类统计当前机会") {
                         if stageCounts.isEmpty {
                             EmptyStateView(icon: "chart.bar", title: "暂无数据", message: "新建投递后生成状态分布。")
                         } else {

@@ -31,6 +31,34 @@ enum ApplicationStatus: String, Codable, CaseIterable, Identifiable {
     var sortOrder: Int {
         Self.allCases.firstIndex(of: self) ?? 0
     }
+
+    var analysisCategory: ApplicationAnalysisCategory {
+        switch self {
+        case .evaluating, .toApply:
+            return .notSubmitted
+        case .applied, .screening, .assessment, .waiting:
+            return .submitted
+        case .interviewing:
+            return .interview
+        case .offer, .accepted:
+            return .offer
+        case .rejected, .withdrawn, .closed:
+            return .ended
+        }
+    }
+}
+
+/// A stable, user-configurable reporting dimension shared by built-in and
+/// custom workflow stages. Custom stage names remain visible in the workflow;
+/// this category only controls how they contribute to dashboard analytics.
+enum ApplicationAnalysisCategory: String, Codable, CaseIterable, Identifiable {
+    case notSubmitted = "未投递"
+    case submitted = "已投递"
+    case interview = "面试"
+    case offer = "Offer"
+    case ended = "结束"
+
+    var id: String { rawValue }
 }
 
 enum RecruitmentProjectStatus: String, Codable, CaseIterable, Identifiable {
@@ -88,12 +116,47 @@ enum InterviewFormat: String, Codable, CaseIterable, Identifiable {
 }
 
 struct CustomStage: Identifiable, Codable, Hashable {
-    var id: UUID = UUID()
+    var id: UUID
     var name: String
-    var colorKey: String = "indigo"
-    var order: Int = 0
-    var isTerminal: Bool = false
-    var createdAt: Date = Date()
+    var colorKey: String
+    var order: Int
+    var isTerminal: Bool
+    var analysisCategory: ApplicationAnalysisCategory
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        colorKey: String = "indigo",
+        order: Int = 0,
+        isTerminal: Bool = false,
+        analysisCategory: ApplicationAnalysisCategory = .submitted,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.name = name
+        self.colorKey = colorKey
+        self.order = order
+        self.isTerminal = isTerminal
+        self.analysisCategory = analysisCategory
+        self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, colorKey, order, isTerminal, analysisCategory, createdAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        colorKey = try values.decodeIfPresent(String.self, forKey: .colorKey) ?? "indigo"
+        order = try values.decodeIfPresent(Int.self, forKey: .order) ?? 0
+        isTerminal = try values.decodeIfPresent(Bool.self, forKey: .isTerminal) ?? false
+        analysisCategory = try values.decodeIfPresent(ApplicationAnalysisCategory.self, forKey: .analysisCategory)
+            ?? (isTerminal ? .ended : .submitted)
+        createdAt = try values.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
 }
 
 struct JobTag: Identifiable, Codable, Hashable {

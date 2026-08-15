@@ -28,6 +28,7 @@ struct SmartAlertItem: Identifiable {
     var applicationID: UUID?
     var eventID: UUID?
     var todoID: UUID?
+    var projectID: UUID?
 }
 
 private struct SmartAlertApplicationContext {
@@ -112,6 +113,7 @@ enum SmartAlertService {
         }
 
         var activeProjectIDs = Set<UUID>()
+        var representativeApplicationByProjectID: [UUID: UUID] = [:]
         for application in store.applications where !application.isArchived && store.isActive(application) {
             if application.updatedAt < staleThreshold {
                 let company = companyNamesByID[application.companyID] ?? "未知公司"
@@ -127,6 +129,9 @@ enum SmartAlertService {
             }
             if let projectID = application.projectID {
                 activeProjectIDs.insert(projectID)
+                if representativeApplicationByProjectID[projectID] == nil {
+                    representativeApplicationByProjectID[projectID] = application.id
+                }
             }
         }
 
@@ -140,7 +145,9 @@ enum SmartAlertService {
                 severity: .warning,
                 title: "招聘项目即将截止",
                 message: "\(company) · \(project.name)",
-                date: deadline
+                date: deadline,
+                applicationID: representativeApplicationByProjectID[project.id],
+                projectID: project.id
             ))
         }
 

@@ -15,21 +15,23 @@ struct DashboardView: View {
     @State private var showingNewTodo = false
 
     private var interviewingCount: Int {
-        store.activeApplications.filter { $0.customStageID == nil && $0.status == .interviewing }.count
+        store.applicationCount(in: .interview)
     }
 
     private var offerCount: Int {
-        store.activeApplications.filter {
-            $0.customStageID == nil && ($0.status == .offer || $0.status == .accepted)
-        }.count
+        store.applicationCount(in: .offer)
     }
 
     private var nextSevenDays: Date {
         Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
     }
 
+    private var sevenDayEvents: [ProcessEvent] {
+        store.upcomingEvents.filter { $0.startsAt <= nextSevenDays }
+    }
+
     private var nearbyEvents: [ProcessEvent] {
-        Array(store.upcomingEvents.filter { $0.startsAt <= nextSevenDays }.prefix(5))
+        Array(sevenDayEvents.prefix(5))
     }
 
     private var staleApplications: [JobApplication] {
@@ -108,7 +110,7 @@ struct DashboardView: View {
             MetricCard(title: "全部投递", value: "\(store.activeApplications.count)", subtitle: "持续积累机会池", icon: "paperplane.fill", color: .blue)
             MetricCard(title: "面试中", value: "\(interviewingCount)", subtitle: "正在推进的流程", icon: "person.2.fill", color: .purple)
             MetricCard(title: "Offer", value: "\(offerCount)", subtitle: offerCount == 0 ? "好消息正在路上" : "继续保持", icon: "trophy.fill", color: .green)
-            MetricCard(title: "未来日程", value: "\(nearbyEvents.count)", subtitle: "未来 7 天", icon: "calendar.badge.clock", color: .orange)
+            MetricCard(title: "未来日程", value: "\(sevenDayEvents.count)", subtitle: "未来 7 天", icon: "calendar.badge.clock", color: .orange)
         }
     }
 
@@ -148,26 +150,16 @@ struct DashboardView: View {
     }
 
     private var funnelCard: some View {
-        let builtIn = ApplicationStatus.allCases.compactMap { status -> DashboardStageCount? in
-            let count = store.activeApplications.filter { $0.customStageID == nil && $0.status == status }.count
+        let values = ApplicationAnalysisCategory.allCases.compactMap { category -> DashboardStageCount? in
+            let count = store.applicationCount(in: category)
             return count > 0 ? DashboardStageCount(
-                id: "built-in-\(status.rawValue)",
-                name: status.rawValue,
+                id: category.id,
+                name: category.rawValue,
                 count: count,
-                color: status.color
+                color: category.color
             ) : nil
         }
-        let custom = store.customStages.compactMap { stage -> DashboardStageCount? in
-            let count = store.activeApplications.filter { $0.customStageID == stage.id }.count
-            return count > 0 ? DashboardStageCount(
-                id: "custom-\(stage.id)",
-                name: stage.name,
-                count: count,
-                color: .jobColor(stage.colorKey)
-            ) : nil
-        }
-        let values = builtIn + custom
-        return SectionCard("当前流程分布", subtitle: "每个机会现在所处的阶段") {
+        return SectionCard("当前流程分布", subtitle: "按统一分析分类统计当前机会") {
             if values.isEmpty {
                 EmptyStateView(icon: "chart.bar", title: "暂无数据", message: "新增投递后会自动生成分布。")
             } else {

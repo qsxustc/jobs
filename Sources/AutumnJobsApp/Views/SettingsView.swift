@@ -33,6 +33,7 @@ struct SettingsView: View {
     @State private var newStageName = ""
     @State private var newStageColor = "indigo"
     @State private var newStageIsTerminal = false
+    @State private var newStageAnalysisCategory: ApplicationAnalysisCategory = .submitted
     @State private var newTagName = ""
     @State private var newTagColor = "blue"
     @State private var deleteTarget: SettingsDeleteTarget?
@@ -154,12 +155,24 @@ struct SettingsView: View {
                     HStack {
                         TextField("状态名称，例如等待 HC", text: $newStageName)
                         colorPicker(selection: $newStageColor)
+                        Picker("分析分类", selection: $newStageAnalysisCategory) {
+                            ForEach(ApplicationAnalysisCategory.allCases) { category in
+                                Text(category.rawValue).tag(category)
+                            }
+                        }
+                        .frame(width: 120)
                         Toggle("终态", isOn: $newStageIsTerminal)
                             .toggleStyle(.checkbox)
                         Button("添加") {
-                            store.addCustomStage(name: newStageName, colorKey: newStageColor, isTerminal: newStageIsTerminal)
+                            store.addCustomStage(
+                                name: newStageName,
+                                colorKey: newStageColor,
+                                isTerminal: newStageIsTerminal,
+                                analysisCategory: newStageAnalysisCategory
+                            )
                             newStageName = ""
                             newStageIsTerminal = false
+                            newStageAnalysisCategory = .submitted
                         }
                         .disabled(newStageName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -176,6 +189,17 @@ struct SettingsView: View {
                                     Text("终态").font(.caption2).foregroundStyle(.secondary)
                                 }
                                 Spacer()
+                                Picker("分析分类", selection: Binding(
+                                    get: { store.customStage(id: stage.id)?.analysisCategory ?? stage.analysisCategory },
+                                    set: { store.updateCustomStageCategory(id: stage.id, to: $0) }
+                                )) {
+                                    ForEach(ApplicationAnalysisCategory.allCases) { category in
+                                        Text(category.rawValue).tag(category)
+                                    }
+                                }
+                                .labelsHidden()
+                                .frame(width: 105)
+                                .help("该状态在概览和数据分析中的统计分类")
                                 Text("\(store.applications.filter { $0.customStageID == stage.id }.count) 条投递")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)

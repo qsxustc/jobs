@@ -65,6 +65,18 @@ extension ApplicationStatus {
     }
 }
 
+extension ApplicationAnalysisCategory {
+    var color: Color {
+        switch self {
+        case .notSubmitted: return .indigo
+        case .submitted: return .blue
+        case .interview: return .purple
+        case .offer: return .green
+        case .ended: return .gray
+        }
+    }
+}
+
 extension Priority {
     var color: Color {
         switch self {

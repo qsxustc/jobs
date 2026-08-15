@@ -451,6 +451,50 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.application(id: applicationID)?.resumeVersionID)
     }
 
+    func testCustomStageAnalysisCategoryDrivesSharedMetricsAndPersists() throws {
+        let url = temporaryURL()
+        let store = AppStore(storageURL: url, loadSampleIfEmpty: false)
+        let stageID = store.addCustomStage(
+            name: "等待面试安排",
+            colorKey: "purple",
+            isTerminal: false,
+            analysisCategory: .interview
+        )
+        var form = ApplicationFormData()
+        form.companyName = "分析分类测试公司"
+        form.position = "研发工程师"
+        form.status = .toApply
+        form.customStageID = stageID
+        let applicationID = store.saveApplication(data: form)
+        let application = try XCTUnwrap(store.application(id: applicationID))
+
+        XCTAssertEqual(store.analysisCategory(for: application), .interview)
+        XCTAssertEqual(store.applicationCount(in: .interview), 1)
+        XCTAssertTrue(store.isSubmitted(application))
+        XCTAssertTrue(store.hasResponse(application))
+
+        store.updateCustomStageCategory(id: stageID, to: .offer)
+        XCTAssertEqual(store.applicationCount(in: .interview), 0)
+        XCTAssertEqual(store.applicationCount(in: .offer), 1)
+
+        let reloaded = AppStore(storageURL: url, loadSampleIfEmpty: false)
+        XCTAssertEqual(reloaded.customStage(id: stageID)?.analysisCategory, .offer)
+    }
+
+    func testLegacyCustomStageGetsBackwardCompatibleAnalysisCategory() throws {
+        let terminalID = UUID()
+        let terminalJSON = Data("""
+        {"id":"\(terminalID.uuidString)","name":"旧版结束状态","isTerminal":true}
+        """.utf8)
+        let openID = UUID()
+        let openJSON = Data("""
+        {"id":"\(openID.uuidString)","name":"旧版进行中状态","isTerminal":false}
+        """.utf8)
+
+        XCTAssertEqual(try JSONDecoder().decode(CustomStage.self, from: terminalJSON).analysisCategory, .ended)
+        XCTAssertEqual(try JSONDecoder().decode(CustomStage.self, from: openJSON).analysisCategory, .submitted)
+    }
+
     func testSmartAlertsFindOverdueTodoAndMissingReview() {
         let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
         var applicationForm = ApplicationFormData()
@@ -475,6 +519,23 @@ final class AppStoreTests: XCTestCase {
         let alerts = SmartAlertService.items(store: store)
         XCTAssertTrue(alerts.contains { $0.kind == .overdueTodo })
         XCTAssertTrue(alerts.contains { $0.kind == .missingReview })
+    }
+
+    func testPostponingOverdueTodoReschedulesItAndClearsAlert() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 15, hour: 10)))
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var todo = TodoFormData()
+        todo.title = "延期测试待办"
+        todo.dueAt = calendar.date(byAdding: .hour, value: -2, to: now)
+        let todoID = store.saveTodo(data: todo)
+
+        XCTAssertTrue(SmartAlertService.items(store: store, now: now).contains { $0.todoID == todoID })
+        store.postponeTodo(id: todoID, byDays: 3, from: now, calendar: calendar)
+
+        XCTAssertEqual(store.todos.first { $0.id == todoID }?.dueAt, calendar.date(byAdding: .day, value: 3, to: now))
+        XCTAssertFalse(SmartAlertService.items(store: store, now: now).contains { $0.todoID == todoID })
     }
 
     func testUpcomingEventsExcludeFinishedCancelledAndArchivedItems() {
@@ -640,6 +701,23 @@ final class AppStoreTests: XCTestCase {
         store.saveApplication(data: application)
 
         XCTAssertFalse(SmartAlertService.items(store: store).contains { $0.kind == .projectDeadline })
+    }
+
+    func testProjectDeadlineAlertCarriesNavigationTargets() throws {
+        let now = Date()
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var application = ApplicationFormData()
+        application.companyName = "截止提醒测试公司"
+        application.projectName = "2027 校招"
+        application.projectURL = "https://jobs.example/campus"
+        application.projectDeadline = now.addingTimeInterval(86_400)
+        application.position = "客户端工程师"
+        let applicationID = store.saveApplication(data: application)
+        let projectID = try XCTUnwrap(store.application(id: applicationID)?.projectID)
+
+        let alert = try XCTUnwrap(SmartAlertService.items(store: store, now: now).first { $0.kind == .projectDeadline })
+        XCTAssertEqual(alert.applicationID, applicationID)
+        XCTAssertEqual(alert.projectID, projectID)
     }
 
     func testCSVBatchImportPreservesSharedMetadataAndSkipsDuplicates() throws {

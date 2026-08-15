@@ -124,6 +124,25 @@ final class AppStore: ObservableObject {
         customStage(id: application.customStageID)?.name ?? application.status.rawValue
     }
 
+    func analysisCategory(for application: JobApplication) -> ApplicationAnalysisCategory {
+        customStage(id: application.customStageID)?.analysisCategory ?? application.status.analysisCategory
+    }
+
+    func applicationCount(in category: ApplicationAnalysisCategory) -> Int {
+        activeApplications.lazy.filter { self.analysisCategory(for: $0) == category }.count
+    }
+
+    func isSubmitted(_ application: JobApplication) -> Bool {
+        application.appliedAt != nil || analysisCategory(for: application) != .notSubmitted
+    }
+
+    func hasResponse(_ application: JobApplication) -> Bool {
+        if customStage(id: application.customStageID) != nil {
+            return [.interview, .offer, .ended].contains(analysisCategory(for: application))
+        }
+        return ![.applied, .evaluating, .toApply].contains(application.status)
+    }
+
     func isActive(_ application: JobApplication) -> Bool {
         if let stage = customStage(id: application.customStageID) {
             return !stage.isTerminal
@@ -675,6 +694,12 @@ final class AppStore: ObservableObject {
         _ = persist()
     }
 
+    func postponeTodo(id: UUID, byDays days: Int, from now: Date = Date(), calendar: Calendar = .current) {
+        guard days > 0, let index = todos.firstIndex(where: { $0.id == id }), !todos[index].isCompleted else { return }
+        todos[index].dueAt = calendar.date(byAdding: .day, value: days, to: now) ?? now.addingTimeInterval(Double(days) * 86_400)
+        _ = persist()
+    }
+
     func deleteTodo(id: UUID) {
         todos.removeAll { $0.id == id }
         _ = persist()
@@ -686,10 +711,27 @@ final class AppStore: ObservableObject {
     }
 
     @discardableResult
-    func addCustomStage(name: String, colorKey: String, isTerminal: Bool) -> UUID {
-        let id = ensureCustomStage(name: name, colorKey: colorKey, isTerminal: isTerminal)
+    func addCustomStage(
+        name: String,
+        colorKey: String,
+        isTerminal: Bool,
+        analysisCategory: ApplicationAnalysisCategory? = nil
+    ) -> UUID {
+        let id = ensureCustomStage(
+            name: name,
+            colorKey: colorKey,
+            isTerminal: isTerminal,
+            analysisCategory: analysisCategory ?? (isTerminal ? .ended : .submitted)
+        )
         _ = persist()
         return id
+    }
+
+    func updateCustomStageCategory(id: UUID, to category: ApplicationAnalysisCategory) {
+        guard let index = customStages.firstIndex(where: { $0.id == id }),
+              customStages[index].analysisCategory != category else { return }
+        customStages[index].analysisCategory = category
+        _ = persist()
     }
 
     func deleteCustomStage(id: UUID) {
@@ -868,7 +910,12 @@ final class AppStore: ObservableObject {
         return result
     }
 
-    private func ensureCustomStage(name: String, colorKey: String, isTerminal: Bool) -> UUID {
+    private func ensureCustomStage(
+        name: String,
+        colorKey: String,
+        isTerminal: Bool,
+        analysisCategory: ApplicationAnalysisCategory = .submitted
+    ) -> UUID {
         let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if let existing = customStages.first(where: {
             $0.name.caseInsensitiveCompare(normalizedName) == .orderedSame
@@ -879,7 +926,8 @@ final class AppStore: ObservableObject {
             name: normalizedName,
             colorKey: colorKey,
             order: customStages.count,
-            isTerminal: isTerminal
+            isTerminal: isTerminal,
+            analysisCategory: analysisCategory
         )
         customStages.append(stage)
         return stage.id
