@@ -1,6 +1,16 @@
 import Foundation
 
+struct LocalBackup: Identifiable, Hashable {
+    let url: URL
+    let createdAt: Date
+    let byteCount: Int
+
+    var id: URL { url }
+}
+
 enum BackupService {
+    static let maximumRollingBackupCount = 20
+
     static func encode(_ snapshot: AppSnapshot) throws -> Data {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -44,6 +54,56 @@ enum BackupService {
 
         try validate(snapshot)
         return snapshot
+    }
+
+    static func rollingBackupDirectory(for storageURL: URL) -> URL {
+        let storageName = storageURL.deletingPathExtension().lastPathComponent
+        return storageURL.deletingLastPathComponent()
+            .appendingPathComponent("\(storageName)-backups", isDirectory: true)
+    }
+
+    @discardableResult
+    static func createRollingBackup(
+        _ snapshot: AppSnapshot,
+        in directory: URL,
+        now: Date = Date(),
+        maximumCount: Int = maximumRollingBackupCount
+    ) throws -> LocalBackup {
+        let manager = FileManager.default
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let milliseconds = Int64(now.timeIntervalSince1970 * 1_000)
+        let url = directory.appendingPathComponent(
+            "autumn-jobs-\(milliseconds)-\(UUID().uuidString.prefix(8)).json"
+        )
+        let data = try encode(snapshot)
+        try data.write(to: url, options: .atomic)
+
+        let backups = localBackups(in: directory)
+        for obsolete in backups.dropFirst(max(1, maximumCount)) {
+            try? manager.removeItem(at: obsolete.url)
+        }
+        return LocalBackup(url: url, createdAt: now, byteCount: data.count)
+    }
+
+    static func localBackups(in directory: URL) -> [LocalBackup] {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return urls.compactMap { url in
+            guard url.pathExtension.lowercased() == "json",
+                  let values = try? url.resourceValues(forKeys: keys),
+                  values.isRegularFile == true else { return nil }
+            return LocalBackup(
+                url: url,
+                createdAt: values.contentModificationDate ?? .distantPast,
+                byteCount: values.fileSize ?? 0
+            )
+        }
+        .sorted { $0.createdAt > $1.createdAt }
     }
 
     private static func validate(_ snapshot: AppSnapshot) throws {

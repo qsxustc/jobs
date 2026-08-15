@@ -876,4 +876,96 @@ final class AppStoreTests: XCTestCase {
         }
         XCTAssertNotNil(store.firstResponseDate(for: application))
     }
+
+    func testJDParserExtractsQuickCreateFieldsAndExactDeadline() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 8, day: 15)))
+        let jd = """
+        公司名称：星海科技有限公司
+        岗位名称：macOS 开发工程师
+        工作地点：上海市 / 远程
+        岗位类别：研发
+        岗位要求：
+        1. 熟悉 Swift 与 SwiftUI
+        2. 有 macOS 客户端经验
+        投递截止时间：2026年8月31日 18:30
+        """
+
+        let result = JDParsingService.analyze(jd, now: now, calendar: calendar)
+
+        XCTAssertEqual(result.companyName, "星海科技有限公司")
+        XCTAssertEqual(result.position, "macOS 开发工程师")
+        XCTAssertEqual(result.location, "上海 / 远程")
+        XCTAssertEqual(result.category, "研发")
+        XCTAssertTrue(result.requirements.contains("SwiftUI"))
+        XCTAssertFalse(result.requirements.contains("截止"))
+        let deadline = try XCTUnwrap(result.deadline)
+        XCTAssertEqual(calendar.component(.hour, from: deadline), 18)
+        XCTAssertEqual(calendar.component(.minute, from: deadline), 30)
+    }
+
+    func testPossibleDuplicateCanMergeJDWithoutResettingProgress() throws {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var existing = ApplicationFormData()
+        existing.companyName = "星海科技"
+        existing.position = "后端开发工程师"
+        existing.status = .interviewing
+        let existingID = store.saveApplication(data: existing)
+
+        var incoming = ApplicationFormData()
+        incoming.companyName = "星海科技有限公司"
+        incoming.position = "后端研发工程师"
+        incoming.location = "上海"
+        incoming.jdText = "一份新的 JD"
+        incoming.requirements = "熟悉 Swift"
+
+        XCTAssertEqual(store.possibleDuplicateApplications(for: incoming).map(\.id), [existingID])
+        store.mergeApplication(id: existingID, with: incoming)
+
+        let merged = try XCTUnwrap(store.application(id: existingID))
+        XCTAssertEqual(store.applications.count, 1)
+        XCTAssertEqual(merged.status, .interviewing)
+        XCTAssertEqual(merged.location, "上海")
+        XCTAssertEqual(merged.jdText, incoming.jdText)
+        XCTAssertEqual(merged.requirements, incoming.requirements)
+    }
+
+    func testRollingBackupsRotateAndCanBeDecodedForRestore() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AutumnJobsRollingBackupTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for index in 0..<4 {
+            let snapshot = AppSnapshot(
+                companies: [Company(name: "备份公司 \(index)")],
+                projects: [], applications: [], events: [], todos: [], statusHistory: [],
+                settings: UserSettings()
+            )
+            try BackupService.createRollingBackup(
+                snapshot,
+                in: directory,
+                now: Date(timeIntervalSince1970: Double(1_000 + index)),
+                maximumCount: 3
+            )
+        }
+
+        let backups = BackupService.localBackups(in: directory)
+        XCTAssertEqual(backups.count, 3)
+        let newest = try BackupService.decode(Data(contentsOf: try XCTUnwrap(backups.first?.url)))
+        XCTAssertEqual(newest.companies.first?.name, "备份公司 3")
+    }
+
+    func testSuccessfulPersistencePublishesAutomaticBackupTime() {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var form = ApplicationFormData()
+        form.companyName = "自动备份公司"
+        form.position = "客户端工程师"
+        form.jdText = "已保存的 JD"
+        store.saveApplication(data: form)
+
+        XCTAssertNotNil(store.lastSuccessfulBackupAt)
+        XCTAssertEqual(store.localBackups.count, 1)
+        XCTAssertNil(store.lastBackupError)
+    }
 }

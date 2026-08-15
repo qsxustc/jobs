@@ -27,10 +27,14 @@ final class AppStore: ObservableObject {
     @Published private(set) var tags: [JobTag] = []
     @Published private(set) var resumeVersions: [ResumeVersion] = []
     @Published private(set) var settings = UserSettings()
+    @Published private(set) var localBackups: [LocalBackup] = []
+    @Published private(set) var lastSuccessfulBackupAt: Date?
+    @Published private(set) var lastBackupError: String?
     @Published var lastSaveError: String?
     @Published var lastNotificationError: String?
 
     private let storageURL: URL
+    private let backupDirectoryURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var lastPersistedSnapshot: AppSnapshot?
@@ -41,6 +45,7 @@ final class AppStore: ObservableObject {
             ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("AutumnJobs", isDirectory: true)
         self.storageURL = storageURL ?? baseURL.appendingPathComponent("job-data.json")
+        self.backupDirectoryURL = BackupService.rollingBackupDirectory(for: self.storageURL)
 
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -48,6 +53,7 @@ final class AppStore: ObservableObject {
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         lastPersistedSnapshot = currentSnapshot()
+        refreshLocalBackups()
 
         if FileManager.default.fileExists(atPath: self.storageURL.path) {
             _ = load()
@@ -200,7 +206,7 @@ final class AppStore: ObservableObject {
             recruitmentURL: company?.recruitmentURL ?? "",
             selectedProjectID: project?.id,
             projectName: project?.name ?? "",
-            projectType: project?.type ?? "秋招",
+            projectType: project?.type ?? "",
             projectURL: project?.url ?? "",
             projectDeadline: project?.deadline,
             position: application.position,
@@ -208,6 +214,8 @@ final class AppStore: ObservableObject {
             department: application.department,
             location: application.location,
             jdURL: application.jdURL,
+            jdText: application.jdText ?? "",
+            requirements: application.requirements ?? "",
             channel: application.channel,
             referrer: application.referrer,
             appliedAt: application.appliedAt,
@@ -228,6 +236,67 @@ final class AppStore: ObservableObject {
         removeOrphanedCompaniesAndProjects()
         _ = persist()
         return applicationID
+    }
+
+    /// Finds likely duplicate company + position combinations. Matching is
+    /// intentionally conservative: both the company and the meaningful part of
+    /// the position must be similar before the editor interrupts creation.
+    func possibleDuplicateApplications(
+        for data: ApplicationFormData,
+        excluding excludedID: UUID? = nil
+    ) -> [JobApplication] {
+        let requestedCompany = canonicalCompanyName(data.companyName)
+        let requestedPosition = canonicalPositionName(data.position)
+        guard !requestedCompany.isEmpty, !requestedPosition.isEmpty else { return [] }
+
+        return applications
+            .filter { $0.id != excludedID }
+            .compactMap { application -> (JobApplication, Double)? in
+                guard let company = company(for: application) else { return nil }
+                let companyName = canonicalCompanyName(company.name)
+                let position = canonicalPositionName(application.position)
+                let companySimilarity = textSimilarity(requestedCompany, companyName)
+                let positionSimilarity = textSimilarity(requestedPosition, position)
+                let companyMatches = requestedCompany == companyName || companySimilarity >= 0.82
+                let positionMatches = requestedPosition == position ||
+                    (min(requestedPosition.count, position.count) >= 4 &&
+                        (requestedPosition.contains(position) || position.contains(requestedPosition))) ||
+                    positionSimilarity >= 0.62
+                guard companyMatches, positionMatches else { return nil }
+                return (application, companySimilarity + positionSimilarity)
+            }
+            .sorted {
+                if $0.1 != $1.1 { return $0.1 > $1.1 }
+                return $0.0.updatedAt > $1.0.updatedAt
+            }
+            .map(\.0)
+    }
+
+    /// Merges newly pasted JD information into an existing application without
+    /// resetting its workflow status, tags, resume, or other established data.
+    @discardableResult
+    func mergeApplication(id: UUID, with incoming: ApplicationFormData) -> UUID {
+        guard let application = application(id: id) else {
+            return saveApplication(data: incoming)
+        }
+        var merged = formData(for: application)
+        fillIfEmpty(&merged.companyIndustry, from: incoming.companyIndustry)
+        fillIfEmpty(&merged.companyNature, from: incoming.companyNature)
+        fillIfEmpty(&merged.companyWebsite, from: incoming.companyWebsite)
+        fillIfEmpty(&merged.recruitmentURL, from: incoming.recruitmentURL)
+        fillIfEmpty(&merged.projectName, from: incoming.projectName)
+        if merged.projectName.isEmpty { fillIfEmpty(&merged.projectType, from: incoming.projectType) }
+        fillIfEmpty(&merged.projectURL, from: incoming.projectURL)
+        if merged.projectDeadline == nil { merged.projectDeadline = incoming.projectDeadline }
+        fillIfEmpty(&merged.category, from: incoming.category)
+        fillIfEmpty(&merged.department, from: incoming.department)
+        fillIfEmpty(&merged.location, from: incoming.location)
+        fillIfEmpty(&merged.jdURL, from: incoming.jdURL)
+        merged.jdText = mergedText(existing: merged.jdText, incoming: incoming.jdText, sectionName: "新增 JD")
+        merged.requirements = mergedText(existing: merged.requirements, incoming: incoming.requirements, sectionName: "新增岗位要求")
+        fillIfEmpty(&merged.salary, from: incoming.salary)
+        fillIfEmpty(&merged.notes, from: incoming.notes)
+        return saveApplication(id: id, data: merged)
     }
 
     func importApplications(_ forms: [ApplicationFormData]) throws -> CSVImportResult {
@@ -358,6 +427,8 @@ final class AppStore: ObservableObject {
             applications[index].department = data.department
             applications[index].location = data.location
             applications[index].jdURL = data.jdURL
+            applications[index].jdText = data.jdText.nilIfBlank
+            applications[index].requirements = data.requirements.nilIfBlank
             applications[index].channel = data.channel
             applications[index].referrer = data.referrer
             applications[index].appliedAt = data.appliedAt
@@ -388,6 +459,8 @@ final class AppStore: ObservableObject {
                 department: data.department,
                 location: data.location,
                 jdURL: data.jdURL,
+                jdText: data.jdText.nilIfBlank,
+                requirements: data.requirements.nilIfBlank,
                 channel: data.channel,
                 referrer: data.referrer,
                 appliedAt: data.appliedAt,
@@ -684,6 +757,10 @@ final class AppStore: ObservableObject {
 
     func replace(with snapshot: AppSnapshot) throws {
         let prepared = try BackupService.prepare(snapshot)
+        // Preserve one last recoverable copy of the current state before a
+        // restore replaces it. A failure here does not make valid imported data
+        // unusable; it is surfaced separately in Settings.
+        createRollingBackup(for: currentSnapshot())
         apply(prepared)
         guard persist(allowReplacingUnreadableStorage: true) else {
             throw AppStoreError.persistenceFailed(lastSaveError ?? "恢复后的数据无法保存。")
@@ -754,6 +831,7 @@ final class AppStore: ObservableObject {
             protectsUnreadableStorage = false
             lastPersistedSnapshot = candidate
             lastSaveError = nil
+            createRollingBackup(for: candidate)
             return true
         } catch {
             if let lastPersistedSnapshot {
@@ -869,6 +947,87 @@ final class AppStore: ObservableObject {
         value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    private func createRollingBackup(for snapshot: AppSnapshot) {
+        do {
+            _ = try BackupService.createRollingBackup(
+                snapshot,
+                in: backupDirectoryURL
+            )
+            refreshLocalBackups()
+            lastBackupError = nil
+        } catch {
+            lastBackupError = "自动备份失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func refreshLocalBackups() {
+        localBackups = BackupService.localBackups(in: backupDirectoryURL)
+        lastSuccessfulBackupAt = localBackups.first?.createdAt
+    }
+
+    private func canonicalCompanyName(_ value: String) -> String {
+        let withoutParenthetical = value.replacingOccurrences(
+            of: #"[(（][^)）]*[)）]"#,
+            with: "",
+            options: .regularExpression
+        )
+        var normalized = canonicalText(withoutParenthetical)
+        for suffix in ["股份有限公司", "有限责任公司", "有限公司", "集团", "公司"] {
+            if normalized.hasSuffix(suffix), normalized.count > suffix.count {
+                normalized.removeLast(suffix.count)
+                break
+            }
+        }
+        return normalized
+    }
+
+    private func canonicalPositionName(_ value: String) -> String {
+        var normalized = canonicalText(value)
+        for suffix in ["工程师", "实习生", "管培生", "经理", "专员", "岗位", "职位"] {
+            if normalized.hasSuffix(suffix), normalized.count > suffix.count {
+                normalized.removeLast(suffix.count)
+                break
+            }
+        }
+        normalized = normalized.replacingOccurrences(of: "研发", with: "开发")
+        return normalized
+    }
+
+    private func canonicalText(_ value: String) -> String {
+        value.lowercased().unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+    }
+
+    private func textSimilarity(_ left: String, _ right: String) -> Double {
+        if left == right { return 1 }
+        guard !left.isEmpty, !right.isEmpty else { return 0 }
+        if left.count == 1 || right.count == 1 { return 0 }
+        let leftPairs = Set(zip(left, left.dropFirst()).map { String([$0, $1]) })
+        let rightPairs = Set(zip(right, right.dropFirst()).map { String([$0, $1]) })
+        guard !leftPairs.isEmpty, !rightPairs.isEmpty else { return 0 }
+        return Double(leftPairs.intersection(rightPairs).count * 2) /
+            Double(leftPairs.count + rightPairs.count)
+    }
+
+    private func fillIfEmpty(_ destination: inout String, from source: String) {
+        if destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            destination = source
+        }
+    }
+
+    private func mergedText(existing: String, incoming: String, sectionName: String) -> String {
+        let old = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        let new = incoming.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !new.isEmpty else { return existing }
+        guard !old.isEmpty else { return incoming }
+        guard old != new, !old.contains(new) else { return existing }
+        guard !new.contains(old) else { return incoming }
+        return "\(old)\n\n--- \(sectionName) ---\n\(new)"
+    }
+
     private func seedSampleData() {
         let calendar = Calendar.current
         let now = Date()
@@ -915,5 +1074,11 @@ final class AppStore: ObservableObject {
         if resumeVersions.isEmpty {
             resumeVersions = [ResumeVersion(name: "通用简历", target: "通用", isDefault: true)]
         }
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : self
     }
 }

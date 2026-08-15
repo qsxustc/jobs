@@ -146,6 +146,10 @@ struct JobApplication: Identifiable, Codable, Hashable {
     var department: String = ""
     var location: String = ""
     var jdURL: String = ""
+    /// The pasted job description. Optional keeps snapshots created before this
+    /// field was introduced decodable without a schema migration.
+    var jdText: String?
+    var requirements: String?
     var channel: String = "官网"
     var referrer: String = ""
     var appliedAt: Date?
@@ -273,6 +277,8 @@ struct ApplicationFormData {
     var department = ""
     var location = ""
     var jdURL = ""
+    var jdText = ""
+    var requirements = ""
     var channel = "官网"
     var referrer = ""
     var appliedAt: Date?

@@ -109,6 +109,47 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                SectionCard("本地自动备份", subtitle: "每次数据保存成功后生成快照，滚动保留最近 \(BackupService.maximumRollingBackupCount) 份") {
+                    HStack {
+                        Label("上次成功备份", systemImage: "externaldrive.badge.checkmark")
+                            .font(.headline)
+                        Spacer()
+                        Text(store.lastSuccessfulBackupAt.map { AppFormatters.fullDate.string(from: $0) } ?? "尚无备份")
+                            .foregroundStyle(store.lastSuccessfulBackupAt == nil ? .secondary : .primary)
+                    }
+                    if let error = store.lastBackupError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Divider()
+                    if store.localBackups.isEmpty {
+                        Text("下次成功保存数据时会自动创建第一份备份。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(store.localBackups.prefix(5)) { backup in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(AppFormatters.fullDate.string(from: backup.createdAt))
+                                    Text(ByteCountFormatter.string(fromByteCount: Int64(backup.byteCount), countStyle: .file))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("恢复此版本") { pendingBackupURL = backup.url }
+                                    .buttonStyle(.bordered)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                        if store.localBackups.count > 5 {
+                            Text("还有 \(store.localBackups.count - 5) 份较早备份，系统会自动滚动清理。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
                 SectionCard("自定义流程状态", subtitle: "创建适合自己求职流程的看板列") {
                     HStack {
                         TextField("状态名称，例如等待 HC", text: $newStageName)
@@ -252,7 +293,7 @@ struct SettingsView: View {
             }
             Button("取消", role: .cancel) { pendingBackupURL = nil }
         } message: { _ in
-            Text("当前的全部公司、投递、日程和待办将被备份内容替换。恢复成功前不会覆盖本地数据。")
+            Text("当前的全部公司、投递、日程和待办将被备份内容替换。恢复前会先自动保留当前版本，恢复成功前不会覆盖本地数据。")
         }
     }
 

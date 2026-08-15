@@ -22,6 +22,7 @@ struct ApplicationDetailView: View {
                 quickInfo
                 eventsSection
                 todosSection
+                jdSection
                 notesSection
                 historySection
             }
@@ -214,6 +215,32 @@ struct ApplicationDetailView: View {
                 Text(application.notes)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var jdSection: some View {
+        let jdText = application.jdText ?? ""
+        let requirements = application.requirements ?? ""
+        if !jdText.isEmpty || !requirements.isEmpty {
+            SectionCard("JD 与岗位要求") {
+                if !requirements.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("岗位要求").font(.caption).foregroundStyle(.secondary)
+                        Text(requirements)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                if !jdText.isEmpty {
+                    DisclosureGroup("查看 JD 原文") {
+                        Text(jdText)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 8)
+                    }
+                }
             }
         }
     }
