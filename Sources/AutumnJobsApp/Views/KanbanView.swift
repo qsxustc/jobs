@@ -21,7 +21,7 @@ struct KanbanView: View {
     }
 
     var body: some View {
-        ScrollView(.horizontal) {
+        ScrollView([.horizontal, .vertical]) {
             LazyHStack(alignment: .top, spacing: 14) {
                 ForEach(ApplicationStatus.allCases) { status in
                     KanbanColumn(status: status, applications: applications(for: status)) { application in
