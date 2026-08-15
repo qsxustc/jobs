@@ -103,6 +103,7 @@ struct ApplicationEditorView: View {
         Section("必填信息") {
             companyNameField
             TextField("岗位名称", text: $form.position)
+            TextField("JD 链接（选填）", text: $form.jdURL)
         }
         jdSection(minimumHeight: 260)
         if hasParsedMetadata {
