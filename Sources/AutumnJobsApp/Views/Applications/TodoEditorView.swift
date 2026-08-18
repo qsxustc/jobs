@@ -76,8 +76,7 @@ struct TodoEditorView: View {
                 }
 
                 Section("备注") {
-                    TextEditor(text: $form.notes)
-                        .frame(minHeight: 100)
+                    LargeTextEditor(text: $form.notes, minimumHeight: 100)
                 }
             }
             .formStyle(.grouped)

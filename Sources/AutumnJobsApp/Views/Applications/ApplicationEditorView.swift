@@ -154,7 +154,9 @@ struct ApplicationEditorView: View {
             TextField("内推人或联系人", text: $form.referrer)
         }
         jdSection(minimumHeight: 150)
-        Section("岗位要求") { TextEditor(text: $form.requirements).frame(minHeight: 100) }
+        Section("岗位要求") {
+            LargeTextEditor(text: $form.requirements, minimumHeight: 100)
+        }
         Section("进度") {
             Picker("标准状态", selection: $form.status) {
                 ForEach(ApplicationStatus.allCases) { status in Text(status.rawValue).tag(status) }
@@ -197,7 +199,9 @@ struct ApplicationEditorView: View {
                 ForEach(store.resumeVersions.sorted { $0.updatedAt > $1.updatedAt }) { resume in Text(resume.name).tag(resume.id as UUID?) }
             }
         }
-        Section("备注") { TextEditor(text: $form.notes).frame(minHeight: 100) }
+        Section("备注") {
+            LargeTextEditor(text: $form.notes, minimumHeight: 100)
+        }
     }
 
     private var companyNameField: some View {
@@ -217,17 +221,11 @@ struct ApplicationEditorView: View {
 
     private func jdSection(minimumHeight: CGFloat) -> some View {
         Section("JD 原文") {
-            TextEditor(text: $form.jdText)
-                .frame(minHeight: minimumHeight)
-                .overlay(alignment: .topLeading) {
-                    if form.jdText.isEmpty {
-                        Text("粘贴完整 JD，自动识别公司、岗位、地点、类别、截止时间和岗位要求")
-                            .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 8)
-                            .allowsHitTesting(false)
-                    }
-                }
+            LargeTextEditor(
+                text: $form.jdText,
+                minimumHeight: minimumHeight,
+                placeholder: "粘贴完整 JD，自动识别公司、岗位、地点、类别、截止时间和岗位要求"
+            )
             HStack {
                 if !jdParseMessage.isEmpty {
                     Label(jdParseMessage, systemImage: "sparkles").font(.caption).foregroundStyle(.secondary)

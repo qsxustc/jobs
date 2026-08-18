@@ -51,6 +51,7 @@ struct ApplicationsView: View {
                 Divider()
                 if filteredApplications.isEmpty {
                     EmptyStateView(icon: "tray", title: "没有匹配的投递", message: "调整筛选条件，或新建第一条投递记录。")
+                        .frame(maxHeight: .infinity, alignment: .top)
                 } else {
                     List(filteredApplications, selection: $selectedID) { application in
                         ApplicationListRow(application: application)
@@ -73,6 +74,7 @@ struct ApplicationsView: View {
                 }
             }
             .frame(width: 410)
+            .frame(maxHeight: .infinity, alignment: .top)
 
             Divider()
 

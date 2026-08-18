@@ -111,25 +111,11 @@ struct MailRecognitionView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                TextEditor(text: $sourceText)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .frame(minHeight: 430)
-                    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(.quaternary, lineWidth: 1)
-                    }
-                    .overlay(alignment: .topLeading) {
-                        if sourceText.isEmpty {
-                            Text("复制邮件后点击“读取剪贴板并识别”")
-                                .foregroundStyle(.tertiary)
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 15)
-                                .allowsHitTesting(false)
-                        }
-                    }
+                LargeTextEditor(
+                    text: $sourceText,
+                    minimumHeight: 430,
+                    placeholder: "复制邮件后点击“读取剪贴板并识别”"
+                )
             }
         }
     }

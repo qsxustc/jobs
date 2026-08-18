@@ -165,7 +165,7 @@ struct ResumeEditorView: View {
                 }
                 Toggle("设为新投递的默认简历", isOn: $form.isDefault)
                 LabeledField("版本说明") {
-                    TextEditor(text: $form.notes).frame(minHeight: 100)
+                    LargeTextEditor(text: $form.notes, minimumHeight: 100)
                 }
             }
             .formStyle(.grouped)

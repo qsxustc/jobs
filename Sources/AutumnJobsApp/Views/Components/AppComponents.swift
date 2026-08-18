@@ -242,6 +242,44 @@ struct EmptyStateView: View {
     }
 }
 
+struct LargeTextEditor: View {
+    @Binding var text: String
+    let minimumHeight: CGFloat
+    var placeholder: String?
+
+    init(text: Binding<String>, minimumHeight: CGFloat, placeholder: String? = nil) {
+        _text = text
+        self.minimumHeight = minimumHeight
+        self.placeholder = placeholder
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            TextEditor(text: $text)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+
+            if text.isEmpty, let placeholder {
+                Text(placeholder)
+                    .font(.body)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 10)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(minHeight: minimumHeight)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.quaternary, lineWidth: 1)
+        }
+        .padding(.vertical, 3)
+    }
+}
+
 struct CompanyAvatar: View {
     let name: String
     var size: CGFloat = 36

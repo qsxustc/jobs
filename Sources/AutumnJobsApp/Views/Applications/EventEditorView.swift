@@ -118,13 +118,13 @@ struct EventEditorView: View {
                         }
                     }
                     LabeledField("面试问题") {
-                        TextEditor(text: $form.questions).frame(minHeight: 70)
+                        LargeTextEditor(text: $form.questions, minimumHeight: 70)
                     }
                     LabeledField("复盘") {
-                        TextEditor(text: $form.review).frame(minHeight: 80)
+                        LargeTextEditor(text: $form.review, minimumHeight: 80)
                     }
                     LabeledField("备注") {
-                        TextEditor(text: $form.notes).frame(minHeight: 60)
+                        LargeTextEditor(text: $form.notes, minimumHeight: 60)
                     }
                 }
             }
