@@ -21,9 +21,9 @@ struct ApplicationDetailView: View {
                 header
                 quickInfo
                 eventsSection
+                notesSection
                 todosSection
                 jdSection
-                notesSection
                 historySection
             }
             .padding(24)
@@ -121,6 +121,12 @@ struct ApplicationDetailView: View {
                 infoItem("投递渠道", application.channel.isEmpty ? "未填写" : application.channel)
                 infoItem("简历版本", store.resumeVersion(for: application)?.name ?? "未指定")
                 infoItem("投递时间", application.appliedAt.map { AppFormatters.fullDate.string(from: $0) } ?? "尚未投递")
+                infoItem("岗位薪资范围", application.salary.isEmpty ? "未填写" : application.salary)
+                infoItem(
+                    "Offer 薪资",
+                    application.offerSalary.isEmpty ? "未填写" : application.offerSalary,
+                    emphasized: !application.offerSalary.isEmpty
+                )
                 infoItem("最近更新", AppFormatters.fullDate.string(from: application.updatedAt))
             }
             let applicationTags = store.tags(for: application)
@@ -268,10 +274,13 @@ struct ApplicationDetailView: View {
         }
     }
 
-    private func infoItem(_ title: String, _ value: String) -> some View {
+    private func infoItem(_ title: String, _ value: String, emphasized: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.subheadline).lineLimit(2)
+            Text(value)
+                .font(.subheadline.weight(emphasized ? .semibold : .regular))
+                .foregroundStyle(emphasized ? Color.green : Color.primary)
+                .lineLimit(2)
         }
     }
 

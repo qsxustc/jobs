@@ -222,10 +222,98 @@ struct JobApplication: Identifiable, Codable, Hashable {
     var resumeVersionID: UUID?
     var priority: Priority = .medium
     var salary: String = ""
+    var offerSalary: String = ""
     var notes: String = ""
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
     var isArchived: Bool = false
+
+    init(
+        id: UUID = UUID(),
+        companyID: UUID,
+        projectID: UUID? = nil,
+        position: String,
+        category: String = "",
+        department: String = "",
+        location: String = "",
+        jdURL: String = "",
+        jdText: String? = nil,
+        requirements: String? = nil,
+        channel: String = "官网",
+        referrer: String = "",
+        appliedAt: Date? = nil,
+        status: ApplicationStatus = .evaluating,
+        customStageID: UUID? = nil,
+        tagIDs: [UUID]? = nil,
+        resumeVersionID: UUID? = nil,
+        priority: Priority = .medium,
+        salary: String = "",
+        offerSalary: String = "",
+        notes: String = "",
+        createdAt: Date = Date(),
+        updatedAt: Date = Date(),
+        isArchived: Bool = false
+    ) {
+        self.id = id
+        self.companyID = companyID
+        self.projectID = projectID
+        self.position = position
+        self.category = category
+        self.department = department
+        self.location = location
+        self.jdURL = jdURL
+        self.jdText = jdText
+        self.requirements = requirements
+        self.channel = channel
+        self.referrer = referrer
+        self.appliedAt = appliedAt
+        self.status = status
+        self.customStageID = customStageID
+        self.tagIDs = tagIDs
+        self.resumeVersionID = resumeVersionID
+        self.priority = priority
+        self.salary = salary
+        self.offerSalary = offerSalary
+        self.notes = notes
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.isArchived = isArchived
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, companyID, projectID, position, category, department, location
+        case jdURL, jdText, requirements, channel, referrer, appliedAt, status
+        case customStageID, tagIDs, resumeVersionID, priority, salary, offerSalary
+        case notes, createdAt, updatedAt, isArchived
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        companyID = try values.decode(UUID.self, forKey: .companyID)
+        projectID = try values.decodeIfPresent(UUID.self, forKey: .projectID)
+        position = try values.decode(String.self, forKey: .position)
+        category = try values.decode(String.self, forKey: .category)
+        department = try values.decode(String.self, forKey: .department)
+        location = try values.decode(String.self, forKey: .location)
+        jdURL = try values.decode(String.self, forKey: .jdURL)
+        jdText = try values.decodeIfPresent(String.self, forKey: .jdText)
+        requirements = try values.decodeIfPresent(String.self, forKey: .requirements)
+        channel = try values.decode(String.self, forKey: .channel)
+        referrer = try values.decode(String.self, forKey: .referrer)
+        appliedAt = try values.decodeIfPresent(Date.self, forKey: .appliedAt)
+        status = try values.decode(ApplicationStatus.self, forKey: .status)
+        customStageID = try values.decodeIfPresent(UUID.self, forKey: .customStageID)
+        tagIDs = try values.decodeIfPresent([UUID].self, forKey: .tagIDs)
+        resumeVersionID = try values.decodeIfPresent(UUID.self, forKey: .resumeVersionID)
+        priority = try values.decode(Priority.self, forKey: .priority)
+        salary = try values.decode(String.self, forKey: .salary)
+        offerSalary = try values.decodeIfPresent(String.self, forKey: .offerSalary) ?? ""
+        notes = try values.decode(String.self, forKey: .notes)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        updatedAt = try values.decode(Date.self, forKey: .updatedAt)
+        isArchived = try values.decode(Bool.self, forKey: .isArchived)
+    }
 }
 
 struct ProcessEvent: Identifiable, Codable, Hashable {
@@ -308,7 +396,7 @@ struct UserSettings: Codable, Hashable {
 }
 
 struct AppSnapshot: Codable {
-    static let currentSchemaVersion = 2
+    static let currentSchemaVersion = 3
 
     var schemaVersion = Self.currentSchemaVersion
     var companies: [Company]
@@ -351,6 +439,7 @@ struct ApplicationFormData {
     var resumeVersionID: UUID?
     var priority: Priority = .medium
     var salary = ""
+    var offerSalary = ""
     var notes = ""
     var importedCustomStageName = ""
     var importedTagNames: [String] = []

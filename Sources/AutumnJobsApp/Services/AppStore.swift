@@ -244,6 +244,7 @@ final class AppStore: ObservableObject {
             resumeVersionID: application.resumeVersionID,
             priority: application.priority,
             salary: application.salary,
+            offerSalary: application.offerSalary,
             notes: application.notes
         )
     }
@@ -314,6 +315,7 @@ final class AppStore: ObservableObject {
         merged.jdText = mergedText(existing: merged.jdText, incoming: incoming.jdText, sectionName: "新增 JD")
         merged.requirements = mergedText(existing: merged.requirements, incoming: incoming.requirements, sectionName: "新增岗位要求")
         fillIfEmpty(&merged.salary, from: incoming.salary)
+        fillIfEmpty(&merged.offerSalary, from: incoming.offerSalary)
         fillIfEmpty(&merged.notes, from: incoming.notes)
         return saveApplication(id: id, data: merged)
     }
@@ -457,6 +459,7 @@ final class AppStore: ObservableObject {
             applications[index].resumeVersionID = validResumeVersionID
             applications[index].priority = data.priority
             applications[index].salary = data.salary
+            applications[index].offerSalary = data.offerSalary
             applications[index].notes = data.notes
             applications[index].updatedAt = now
             applicationID = id
@@ -489,6 +492,7 @@ final class AppStore: ObservableObject {
                 resumeVersionID: validResumeVersionID,
                 priority: data.priority,
                 salary: data.salary,
+                offerSalary: data.offerSalary,
                 notes: data.notes,
                 updatedAt: now
             )
@@ -840,7 +844,8 @@ final class AppStore: ObservableObject {
             // rather than the empty snapshot created during initialization.
             lastPersistedSnapshot = currentSnapshot()
             if originalSchemaVersion < AppSnapshot.currentSchemaVersion {
-                let migrationBackupURL = storageURL.deletingLastPathComponent().appendingPathComponent("job-data-v1-backup.json")
+                let migrationBackupURL = storageURL.deletingLastPathComponent()
+                    .appendingPathComponent("job-data-v\(originalSchemaVersion)-backup.json")
                 if !FileManager.default.fileExists(atPath: migrationBackupURL.path) {
                     try FileManager.default.copyItem(at: storageURL, to: migrationBackupURL)
                 }

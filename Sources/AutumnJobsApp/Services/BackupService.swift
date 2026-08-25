@@ -49,8 +49,12 @@ enum BackupService {
                 snapshot.resumeVersions = [ResumeVersion(name: "通用简历", target: "通用", isDefault: true)]
             }
             snapshot.customStages = snapshot.customStages ?? []
-            snapshot.schemaVersion = AppSnapshot.currentSchemaVersion
         }
+        // Schema v3 adds JobApplication.offerSalary. JobApplication's custom
+        // decoder supplies an empty value for older snapshots, so no record
+        // transformation is needed here; marking the prepared snapshot current
+        // ensures manual restores and subsequent exports use the new schema.
+        snapshot.schemaVersion = AppSnapshot.currentSchemaVersion
 
         try validate(snapshot)
         return snapshot

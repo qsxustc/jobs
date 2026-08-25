@@ -3,7 +3,7 @@ import Foundation
 enum CSVService {
     static let headers = [
         "公司", "招聘项目", "岗位", "岗位类别", "部门", "工作地点", "JD链接", "投递渠道",
-        "内推人", "投递时间", "当前状态", "自定义状态", "标签", "简历版本", "优先级", "薪资", "备注"
+        "内推人", "投递时间", "当前状态", "自定义状态", "标签", "简历版本", "优先级", "薪资", "Offer薪资", "备注"
     ]
 
     @MainActor
@@ -28,6 +28,7 @@ enum CSVService {
                 store.resumeVersion(for: application)?.name ?? "",
                 application.priority.rawValue,
                 application.salary,
+                application.offerSalary,
                 application.notes
             ])
         }
@@ -84,6 +85,7 @@ enum CSVService {
             form.importedResumeName = value("简历版本")
             form.priority = Priority(rawValue: value("优先级")) ?? .medium
             form.salary = value("薪资")
+            form.offerSalary = value("Offer薪资")
             form.notes = value("备注")
             return form
         }

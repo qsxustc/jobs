@@ -177,7 +177,8 @@ struct ApplicationEditorView: View {
                     set: { form.appliedAt = $0 }
                 ))
             }
-            TextField("薪资信息", text: $form.salary)
+            TextField("岗位薪资范围", text: $form.salary)
+            TextField("Offer 薪资", text: $form.offerSalary)
         }
         Section("标签与简历") {
             if store.tags.isEmpty {

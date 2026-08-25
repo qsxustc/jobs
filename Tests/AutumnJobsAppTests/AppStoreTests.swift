@@ -19,6 +19,8 @@ final class AppStoreTests: XCTestCase {
         applicationForm.position = "macOS 开发工程师"
         applicationForm.status = .applied
         applicationForm.appliedAt = Date()
+        applicationForm.salary = "20-30K"
+        applicationForm.offerSalary = "35K × 16"
         let applicationID = store.saveApplication(data: applicationForm)
 
         XCTAssertEqual(store.companies.count, 1)
@@ -45,6 +47,8 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.events.count, 1)
         XCTAssertEqual(reloaded.todos.count, 1)
         XCTAssertEqual(reloaded.company(for: reloaded.applications[0])?.name, "测试科技")
+        XCTAssertEqual(reloaded.applications[0].salary, "20-30K")
+        XCTAssertEqual(reloaded.applications[0].offerSalary, "35K × 16")
     }
 
     func testStatusHistoryOnlyChangesForNewStatus() {
@@ -73,6 +77,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(first.companyName, "测试公司")
         XCTAssertEqual(first.status, .applied)
         XCTAssertEqual(first.priority, .high)
+        XCTAssertEqual(first.offerSalary, "")
         XCTAssertEqual(first.notes, "包含,逗号的备注")
     }
 
@@ -81,6 +86,8 @@ final class AppStoreTests: XCTestCase {
         var form = ApplicationFormData()
         form.companyName = "换行测试公司"
         form.position = "研发工程师"
+        form.salary = "25-35K"
+        form.offerSalary = "40K × 15 + 签字费"
         form.notes = "第一行\r\n第二行"
         store.saveApplication(data: form)
 
@@ -88,6 +95,8 @@ final class AppStoreTests: XCTestCase {
         let decoded = try CSVService.decode(exported)
 
         XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded.first?.salary, form.salary)
+        XCTAssertEqual(decoded.first?.offerSalary, form.offerSalary)
         XCTAssertEqual(decoded.first?.notes, form.notes)
     }
 
@@ -243,10 +252,15 @@ final class AppStoreTests: XCTestCase {
     }
 
     func testBackupRoundTrip() throws {
+        let company = Company(name: "备份公司")
         let snapshot = AppSnapshot(
-            companies: [Company(name: "备份公司")],
+            companies: [company],
             projects: [],
-            applications: [],
+            applications: [JobApplication(
+                companyID: company.id,
+                position: "备份岗位",
+                offerSalary: "36K × 16"
+            )],
             events: [],
             todos: [],
             statusHistory: [],
@@ -254,7 +268,108 @@ final class AppStoreTests: XCTestCase {
         )
         let restored = try BackupService.decode(BackupService.encode(snapshot))
         XCTAssertEqual(restored.companies.first?.name, "备份公司")
+        XCTAssertEqual(restored.applications.first?.offerSalary, "36K × 16")
         XCTAssertEqual(restored.settings.staleDays, 10)
+    }
+
+    func testVersionTwoBackupWithoutOfferSalaryMigratesWithEmptyDefault() throws {
+        let companyID = UUID()
+        let applicationID = UUID()
+        let legacyData = Data("""
+        {
+          "schemaVersion": 2,
+          "companies": [{
+            "id": "\(companyID.uuidString)",
+            "name": "旧版 Offer 公司",
+            "industry": "",
+            "nature": "",
+            "website": "",
+            "recruitmentURL": "",
+            "notes": "",
+            "createdAt": "2026-08-25T00:00:00Z"
+          }],
+          "projects": [],
+          "applications": [{
+            "id": "\(applicationID.uuidString)",
+            "companyID": "\(companyID.uuidString)",
+            "position": "旧版岗位",
+            "category": "",
+            "department": "",
+            "location": "",
+            "jdURL": "",
+            "channel": "官网",
+            "referrer": "",
+            "status": "Offer",
+            "priority": "中",
+            "salary": "20-30K",
+            "notes": "",
+            "createdAt": "2026-08-25T00:00:00Z",
+            "updatedAt": "2026-08-25T00:00:00Z",
+            "isArchived": false
+          }],
+          "events": [],
+          "todos": [],
+          "statusHistory": [],
+          "settings": {}
+        }
+        """.utf8)
+
+        let restored = try BackupService.decode(legacyData)
+
+        XCTAssertEqual(restored.schemaVersion, AppSnapshot.currentSchemaVersion)
+        XCTAssertEqual(restored.applications.first?.salary, "20-30K")
+        XCTAssertEqual(restored.applications.first?.offerSalary, "")
+        XCTAssertTrue(String(decoding: try BackupService.encode(restored), as: UTF8.self).contains("\"offerSalary\""))
+
+        let storageURL = temporaryURL()
+        try FileManager.default.createDirectory(
+            at: storageURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try legacyData.write(to: storageURL)
+        let store = AppStore(storageURL: storageURL, loadSampleIfEmpty: false)
+
+        XCTAssertEqual(store.applications.first?.offerSalary, "")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: storageURL.deletingLastPathComponent()
+                .appendingPathComponent("job-data-v2-backup.json").path
+        ))
+        let migratedData = try Data(contentsOf: storageURL)
+        let migratedJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: migratedData) as? [String: Any]
+        )
+        XCTAssertEqual(migratedJSON["schemaVersion"] as? Int, AppSnapshot.currentSchemaVersion)
+        let migratedApplications = try XCTUnwrap(
+            migratedJSON["applications"] as? [[String: Any]]
+        )
+        XCTAssertEqual(migratedApplications.first?["offerSalary"] as? String, "")
+    }
+
+    func testOfferSalarySurvivesEditingAndMergeRules() throws {
+        let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
+        var form = ApplicationFormData()
+        form.companyName = "Offer 测试公司"
+        form.position = "研发工程师"
+        form.offerSalary = "35K × 16"
+        let applicationID = store.saveApplication(data: form)
+
+        var edited = store.formData(for: try XCTUnwrap(store.application(id: applicationID)))
+        XCTAssertEqual(edited.offerSalary, "35K × 16")
+        edited.offerSalary = "38K × 16"
+        store.saveApplication(id: applicationID, data: edited)
+
+        var incoming = ApplicationFormData()
+        incoming.companyName = edited.companyName
+        incoming.position = edited.position
+        incoming.offerSalary = "不会覆盖已有 Offer"
+        store.mergeApplication(id: applicationID, with: incoming)
+        XCTAssertEqual(store.application(id: applicationID)?.offerSalary, "38K × 16")
+
+        edited = store.formData(for: try XCTUnwrap(store.application(id: applicationID)))
+        edited.offerSalary = ""
+        store.saveApplication(id: applicationID, data: edited)
+        store.mergeApplication(id: applicationID, with: incoming)
+        XCTAssertEqual(store.application(id: applicationID)?.offerSalary, incoming.offerSalary)
     }
 
     func testBackgroundIdleSettingIsBackwardCompatibleAndSanitized() throws {
@@ -337,7 +452,7 @@ final class AppStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent("job-data-v1-backup.json").path))
 
         let savedSnapshot = try BackupService.decode(Data(contentsOf: url))
-        XCTAssertEqual(savedSnapshot.schemaVersion, 2)
+        XCTAssertEqual(savedSnapshot.schemaVersion, AppSnapshot.currentSchemaVersion)
     }
 
     func testFailedVersionOneMigrationKeepsLoadedDataForRetry() throws {
