@@ -21,28 +21,33 @@ struct KanbanView: View {
     }
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            LazyHStack(alignment: .top, spacing: 14) {
-                ForEach(ApplicationStatus.allCases) { status in
-                    KanbanColumn(status: status, applications: applications(for: status)) { application in
-                        editingApplication = application
-                    }
-                }
-                ForEach(store.customStages.sorted { $0.order < $1.order }) { stage in
-                    let stageApplications = store.activeApplications
-                        .filter { $0.customStageID == stage.id }
-                        .filter { application in
-                            searchText.isEmpty
-                            || (store.company(for: application)?.name ?? "").localizedCaseInsensitiveContains(searchText)
-                            || application.position.localizedCaseInsensitiveContains(searchText)
+        GeometryReader { geometry in
+            ScrollView([.horizontal, .vertical]) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(ApplicationStatus.allCases) { status in
+                        KanbanColumn(status: status, applications: applications(for: status)) { application in
+                            editingApplication = application
                         }
-                        .sorted { $0.updatedAt > $1.updatedAt }
-                    CustomKanbanColumn(stage: stage, applications: stageApplications) { application in
-                        editingApplication = application
+                    }
+                    ForEach(store.customStages.sorted { $0.order < $1.order }) { stage in
+                        let stageApplications = store.activeApplications
+                            .filter { $0.customStageID == stage.id }
+                            .filter { application in
+                                searchText.isEmpty
+                                || (store.company(for: application)?.name ?? "").localizedCaseInsensitiveContains(searchText)
+                                || application.position.localizedCaseInsensitiveContains(searchText)
+                            }
+                            .sorted { $0.updatedAt > $1.updatedAt }
+                        CustomKanbanColumn(stage: stage, applications: stageApplications) { application in
+                            editingApplication = application
+                        }
                     }
                 }
+                .padding(20)
+                // A two-axis ScrollView centers content that is shorter than its viewport.
+                // Searching often makes every column short, so keep the board pinned to the top.
+                .frame(minHeight: geometry.size.height, alignment: .top)
             }
-            .padding(20)
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .navigationTitle("流程看板")

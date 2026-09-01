@@ -157,6 +157,76 @@ final class AppStoreTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(result.confidence, 80)
     }
 
+    func testMailNoticeParserExtractsCompanyAndPositionFromInvitationSentence() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(
+            year: 2026,
+            month: 9,
+            day: 2,
+            hour: 10
+        )))
+        let mail = "您好！欢迎您应聘海信集团，现邀请您就 信动力T计划-算法工程师（大模型）职位进行面试，具体信息如下：面试日期: 2026-09-03"
+
+        let result = MailNoticeParser.analyze(mail, now: now, calendar: calendar)
+
+        XCTAssertTrue(result.isLikelyNotice)
+        XCTAssertEqual(result.companyName, "海信集团")
+        XCTAssertEqual(result.companyCandidates.first, "海信集团")
+        XCTAssertEqual(result.position, "信动力T计划-算法工程师（大模型）")
+        XCTAssertEqual(result.title, "面试")
+        let startsAt = try XCTUnwrap(result.startsAt)
+        XCTAssertEqual(calendar.component(.year, from: startsAt), 2026)
+        XCTAssertEqual(calendar.component(.month, from: startsAt), 9)
+        XCTAssertEqual(calendar.component(.day, from: startsAt), 3)
+    }
+
+    func testMailNoticeMatcherRanksExistingCompanyAndPosition() {
+        let hisense = Company(name: "海信")
+        let haier = Company(name: "海尔集团")
+        let largeModel = JobApplication(companyID: hisense.id, position: "算法工程师（大模型）")
+        let vision = JobApplication(companyID: hisense.id, position: "算法工程师（视觉）")
+        let other = JobApplication(companyID: haier.id, position: "算法工程师（大模型）")
+        var analysis = MailNoticeAnalysis()
+        analysis.companyName = "海信集团"
+        analysis.companyCandidates = ["海信集团"]
+        analysis.position = "信动力T计划-算法工程师（大模型）"
+        analysis.sourceText = "欢迎您应聘海信集团，现邀请您参加算法工程师（大模型）职位面试。"
+
+        let matches = MailNoticeMatchingService.rankedApplicationMatches(
+            for: analysis,
+            applications: [vision, other, largeModel],
+            companies: [haier, hisense]
+        )
+
+        XCTAssertEqual(matches.first?.applicationID, largeModel.id)
+        XCTAssertEqual(MailNoticeMatchingService.automaticApplicationID(from: matches), largeModel.id)
+    }
+
+    func testMailNoticeMatcherOffersCandidatesWhenCompanyCouldNotBeParsed() {
+        let hisense = Company(name: "海信")
+        let haier = Company(name: "海尔集团")
+        let first = JobApplication(companyID: hisense.id, position: "算法工程师")
+        let second = JobApplication(companyID: hisense.id, position: "产品经理")
+        var analysis = MailNoticeAnalysis()
+        analysis.sourceText = "海信集团招聘流程更新，请查看后续安排。"
+
+        let matches = MailNoticeMatchingService.rankedApplicationMatches(
+            for: analysis,
+            applications: [first, second],
+            companies: [hisense, haier]
+        )
+        let suggestions = MailNoticeMatchingService.suggestedCompanyNames(
+            for: analysis,
+            companies: [haier, hisense],
+            query: ""
+        )
+
+        XCTAssertEqual(Set(matches.map(\.applicationID)), Set([first.id, second.id]))
+        XCTAssertNil(MailNoticeMatchingService.automaticApplicationID(from: matches))
+        XCTAssertEqual(suggestions.first, "海信")
+    }
+
     func testMailNoticeParserInfersNextYearAndDefaultsMissingTime() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))

@@ -7,6 +7,7 @@ struct MailNoticeAnalysis: Equatable {
     var title = ""
     var round: Int?
     var companyName = ""
+    var companyCandidates: [String] = []
     var position = ""
     var startsAt: Date?
     var endsAt: Date?
@@ -49,7 +50,8 @@ enum MailNoticeParser {
         let subject = extractSubject(from: lines)
         let type = detectType(in: subject.isEmpty ? text : subject + "\n" + text)
         let parsedDate = extractDateTime(from: lines, now: now, calendar: inputCalendar)
-        let companyName = extractCompany(from: lines, subject: subject)
+        let companyCandidates = extractCompanyCandidates(from: lines, subject: subject)
+        let companyName = companyCandidates.first ?? ""
         let position = extractPosition(from: lines)
         let meetingURL = extractMeetingURL(from: text, lines: lines)
         let location = labeledValue(
@@ -87,7 +89,7 @@ enum MailNoticeParser {
         if type == .other { warnings.append("没有明确识别到面试、笔试或在线测评关键词。") }
         if parsedDate == nil { warnings.append("没有识别到日程时间，请在保存前手动设置。") }
         if parsedDate?.defaultedTime == true { warnings.append("只识别到日期，已暂按当天 09:00 填入，请核对具体时间。") }
-        if companyName.isEmpty { warnings.append("没有可靠识别到公司名称，可从已有投递中手动选择。") }
+        if companyName.isEmpty { warnings.append("没有可靠识别到公司名称，可搜索已有投递或公司，也可直接输入名称。") }
         if position.isEmpty { warnings.append("没有可靠识别到岗位名称，可从已有投递中手动选择。") }
         if hasNegativeResult && !hasFreshInvitation {
             warnings.append("内容更像结果通知，而不是新的日程邀请，请核对后再保存。")
@@ -100,6 +102,7 @@ enum MailNoticeParser {
             title: makeTitle(subject: subject, type: type, text: text),
             round: type.isInterview ? extractRound(from: text) : nil,
             companyName: companyName,
+            companyCandidates: companyCandidates,
             position: position,
             startsAt: parsedDate?.start,
             endsAt: parsedDate?.end,
@@ -131,6 +134,7 @@ enum MailNoticeParser {
         }
         if let first = lines.first,
            first.count <= 100,
+           !containsAny(["您好", "你好", "尊敬的", "具体信息", "面试日期", "面试时间"], in: first),
            containsAny(["面试", "笔试", "测评", "assessment", "interview"], in: first) {
             return cleanValue(first)
         }
@@ -149,42 +153,100 @@ enum MailNoticeParser {
         return .other
     }
 
-    private static func extractCompany(from lines: [String], subject: String) -> String {
-        let labeled = labeledValue(
+    private static func extractCompanyCandidates(from lines: [String], subject: String) -> [String] {
+        var candidates: [String] = []
+
+        func append(_ value: String) {
+            let cleaned = cleanCompanyName(value)
+            guard isPlausibleCompanyName(cleaned) else { return }
+            guard !candidates.contains(where: { companyNamesAreEquivalent($0, cleaned) }) else { return }
+            candidates.append(cleaned)
+        }
+
+        append(labeledValue(
             labels: ["公司名称", "应聘公司", "招聘公司", "公司", "企业名称"],
             lines: lines
-        )
-        if !labeled.isEmpty { return cleanCompanyName(labeled) }
+        ))
 
         for value in captures(#"【([^】]{2,40})】"#, in: subject) {
-            let cleaned = cleanCompanyName(value)
-            if isPlausibleCompanyName(cleaned) { return cleaned }
+            append(value)
         }
 
-        for line in lines.suffix(10) {
-            if let value = firstCapture(
-                #"^(.{2,40}?)(?:校园招聘团队|招聘团队|人力资源部)\s*$"#,
-                in: line
-            ) {
-                let cleaned = cleanCompanyName(value)
-                if isPlausibleCompanyName(cleaned) { return cleaned }
+        let text = lines.joined(separator: "\n")
+        let prosePatterns = [
+            // “欢迎您应聘海信集团，现邀请……”是招聘邮件里很常见的写法。
+            #"(?:欢迎|感谢)\s*(?:您|你)?\s*(?:来)?(?:申请|应聘|投递|关注)\s*(?:了|的)?\s*[“\"「『【]?\s*([^，,。；;！!\n]{2,40}?)[”\"」』】]?\s*(?=[，,。；;！!\n])"#,
+            #"(?:您|你)\s*(?:已|曾|所)?\s*(?:申请|应聘|投递)(?:了|的)?\s*[“\"「『【]?\s*([^，,。；;！!\n]{2,40}?)[”\"」』】]?\s*(?=[，,。；;！!\n])"#,
+            #"(?:这里是|我们是|来自|我是来自)\s*[“\"「『【]?\s*([^，,。；;！!\n]{2,40}?)[”\"」』】]?\s*(?=(?:的)?(?:招聘|校招|人力资源|HR|面试|笔试|测评))"#,
+            #"(?:受|代表)\s*[“\"「『【]?\s*([^，,。；;！!\n]{2,40}?)[”\"」』】]?\s*(?=(?:邀请|通知))"#
+        ]
+        for pattern in prosePatterns {
+            for value in captures(pattern, in: text) {
+                append(value)
             }
         }
-        return ""
+
+        if let value = firstCapture(
+            #"^(?:主题|邮件主题|subject)?\s*[:：]?\s*(?:20\d{2}\s*届\s*)?[“\"「『【]?([^：:\-—|｜\n]{2,40}?)[”\"」』】]?\s*(?:校园招聘|招聘)?\s*(?:面试|笔试|测评)(?:邀请|通知)"#,
+            in: subject
+        ) {
+            append(value)
+        }
+
+        for line in lines.suffix(12) {
+            if let value = firstCapture(
+                #"^(.{2,40}?)(?:校园招聘团队|招聘团队|招聘组|人力资源部|人力资源中心)\s*$"#,
+                in: line
+            ) {
+                append(value)
+            }
+        }
+        return candidates
     }
 
     private static func cleanCompanyName(_ value: String) -> String {
         var result = cleanValue(value)
-        for suffix in ["校园招聘", "招聘", "校招"] where result.hasSuffix(suffix) {
+            .trimmingCharacters(in: CharacterSet(charactersIn: "“”\"「」『』【】<>《》"))
+        result = result.replacingOccurrences(
+            of: #"^(?:您好|你好)?[！!，,\s]*(?:欢迎|感谢)\s*(?:您|你)?\s*(?:来)?(?:申请|应聘|投递|关注)\s*(?:了|的)?\s*"#,
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        result = result.replacingOccurrences(
+            of: #"^20\d{2}\s*届\s*"#,
+            with: "",
+            options: .regularExpression
+        )
+        for suffix in ["校园招聘团队", "招聘团队", "招聘组", "人力资源部", "人力资源中心", "校园招聘", "招聘", "校招"]
+        where result.hasSuffix(suffix) {
             result.removeLast(suffix.count)
         }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r的"))
+    }
+
+    private static func companyNamesAreEquivalent(_ left: String, _ right: String) -> Bool {
+        func canonical(_ value: String) -> String {
+            var normalized = value.lowercased().unicodeScalars
+                .filter { CharacterSet.alphanumerics.contains($0) }
+                .map(String.init)
+                .joined()
+            for suffix in ["股份有限公司", "有限责任公司", "有限公司", "集团", "公司"] {
+                if normalized.hasSuffix(suffix), normalized.count > suffix.count {
+                    normalized.removeLast(suffix.count)
+                    break
+                }
+            }
+            return normalized
+        }
+        let leftCanonical = canonical(left)
+        let rightCanonical = canonical(right)
+        return !leftCanonical.isEmpty && leftCanonical == rightCanonical
     }
 
     private static func isPlausibleCompanyName(_ value: String) -> Bool {
         guard (2...40).contains(value.count) else { return false }
         return !containsAny(
-            ["面试", "笔试", "测评", "通知", "邀请", "提醒", "应聘", "候选人"],
+            ["面试", "笔试", "测评", "通知", "邀请", "提醒", "应聘", "候选人", "岗位", "职位", "工程师", "面试日期", "面试时间"],
             in: value
         )
     }
@@ -194,16 +256,27 @@ enum MailNoticeParser {
             labels: ["应聘岗位", "申请岗位", "投递岗位", "岗位名称", "应聘职位", "申请职位", "职位名称", "岗位", "职位"],
             lines: lines
         )
-        if !labeled.isEmpty { return labeled }
+        if !labeled.isEmpty { return cleanPositionName(labeled) }
 
         let text = lines.joined(separator: "\n")
-        if let value = firstCapture(
-            #"(?:申请|应聘|投递)(?:的)?\s*[“\"「]?([^”\"」\n，,；;]{2,60})[”\"」]?\s*(?:岗位|职位)"#,
-            in: text
-        ) {
-            return cleanValue(value)
+        let patterns = [
+            // “邀请您就 信动力T计划-算法工程师（大模型）职位进行面试”
+            #"(?:诚邀|邀请)\s*(?:您|你)\s*(?:参加|就)\s*[“\"「『【]?\s*([^，,。；;！!\n]{2,80}?)[”\"」』】]?\s*(?:岗位|职位)\s*(?:进行|参加)?\s*(?:面试|笔试|测评|考试)"#,
+            #"(?:诚邀|邀请)\s*(?:您|你)\s*参加\s*[“\"「『【]?\s*([^，,。；;！!\n]{2,80}?)[”\"」』】]?\s*(?:面试|笔试|测评|考试)"#,
+            #"(?:申请|应聘|投递)(?:的)?\s*[“\"「]?([^”\"」\n，,；;]{2,60})[”\"」]?\s*(?:岗位|职位)"#
+        ]
+        for pattern in patterns {
+            if let value = firstCapture(pattern, in: text) {
+                let cleaned = cleanPositionName(value)
+                if !cleaned.isEmpty { return cleaned }
+            }
         }
         return ""
+    }
+
+    private static func cleanPositionName(_ value: String) -> String {
+        cleanValue(value)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\r“”\"「」『』【】"))
     }
 
     private static func labeledValue(labels: [String], lines: [String]) -> String {

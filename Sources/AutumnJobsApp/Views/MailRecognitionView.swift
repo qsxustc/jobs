@@ -1,19 +1,13 @@
 import AppKit
 import SwiftUI
 
-private enum MailCompanySelection: Hashable {
-    case unselected
-    case recognized
-    case existing(UUID)
-}
-
 struct MailRecognitionView: View {
     @EnvironmentObject private var store: AppStore
     @State private var sourceText = ""
     @State private var draft = MailNoticeAnalysis()
     @State private var hasAnalysis = false
     @State private var selectedApplicationID: UUID?
-    @State private var companySelection: MailCompanySelection = .unselected
+    @State private var applicationSearchText = ""
     @State private var recognizedCompanyName = ""
     @State private var recognizedPosition = ""
     @State private var errorMessage: String?
@@ -61,9 +55,6 @@ struct MailRecognitionView: View {
         }
         .onChange(of: selectedApplicationID) { _, applicationID in
             applySelectedApplication(applicationID)
-        }
-        .onChange(of: companySelection) { _, selection in
-            applyCompanySelection(selection)
         }
     }
 
@@ -197,36 +188,68 @@ struct MailRecognitionView: View {
             }
 
             MailEditorRow("关联投递") {
-                Picker("关联投递", selection: $selectedApplicationID) {
-                    Text("不关联，保存时新建投递").tag(nil as UUID?)
-                    if !applicationOptions.isEmpty {
-                        Divider()
-                        ForEach(applicationOptions) { application in
-                            Text(applicationLabel(application)).tag(application.id as UUID?)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 7) {
+                        TextField("搜索已有公司的投递或岗位", text: $applicationSearchText)
+                            .textFieldStyle(.roundedBorder)
+                        if !applicationSearchText.isEmpty {
+                            Button {
+                                applicationSearchText = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("清除搜索")
                         }
                     }
+
+                    Picker("关联投递", selection: $selectedApplicationID) {
+                        Text("不关联，保存时新建投递").tag(nil as UUID?)
+                        if !filteredApplicationOptions.isEmpty {
+                            Divider()
+                            ForEach(filteredApplicationOptions) { application in
+                                Text(applicationLabel(application)).tag(application.id as UUID?)
+                            }
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+
+                    if selectedApplicationID == nil && !likelyApplicationOptions.isEmpty {
+                        candidateButtons(
+                            title: "可能的投递",
+                            labels: likelyApplicationOptions.map(applicationLabel),
+                            action: selectSuggestedApplication(at:)
+                        )
+                    } else if !applicationSearchText.isEmpty && filteredApplicationOptions.isEmpty {
+                        Text("没有匹配的已有投递，可继续在下方填写公司和岗位来新建投递。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
             }
 
             MailEditorRow("公司") {
-                Picker("公司", selection: $companySelection) {
-                    Text("请选择公司").tag(MailCompanySelection.unselected)
-                    if shouldShowRecognizedCompany {
-                        Text("邮件识别：\(recognizedCompanyName)（新建）")
-                            .tag(MailCompanySelection.recognized)
+                VStack(alignment: .leading, spacing: 7) {
+                    TextField("搜索已有公司，或直接输入公司名称", text: $draft.companyName)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(selectedApplicationID != nil)
+
+                    if selectedApplicationID == nil && !suggestedCompanyNames.isEmpty {
+                        candidateButtons(
+                            title: "可能的公司",
+                            labels: suggestedCompanyNames,
+                            action: selectSuggestedCompany(at:)
+                        )
                     }
-                    if !companyOptions.isEmpty {
-                        Divider()
-                        ForEach(companyOptions) { company in
-                            Text(company.name).tag(MailCompanySelection.existing(company.id))
-                        }
+
+                    if selectedApplicationID == nil {
+                        Text("输入时会优先显示邮件中的名称和已有公司的近似结果；没有结果也可直接新建。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .labelsHidden()
-                .frame(maxWidth: .infinity)
-                .disabled(selectedApplicationID != nil)
             }
 
             MailEditorRow("岗位") {
@@ -378,10 +401,41 @@ struct MailRecognitionView: View {
         }
     }
 
-    private var shouldShowRecognizedCompany: Bool {
-        let name = recognizedCompanyName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return false }
-        return !companyOptions.contains { $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    private var filteredApplicationOptions: [JobApplication] {
+        let query = applicationSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return applicationOptions }
+        return applicationOptions.filter { application in
+            let companyName = store.company(for: application)?.name ?? ""
+            return application.id == selectedApplicationID ||
+                application.position.localizedCaseInsensitiveContains(query) ||
+                query.localizedCaseInsensitiveContains(application.position) ||
+                companyName.localizedCaseInsensitiveContains(query) ||
+                query.localizedCaseInsensitiveContains(companyName)
+        }
+    }
+
+    private var rankedApplicationMatches: [MailApplicationMatch] {
+        MailNoticeMatchingService.rankedApplicationMatches(
+            for: draft,
+            applications: applicationOptions,
+            companies: store.companies
+        )
+    }
+
+    private var likelyApplicationOptions: [JobApplication] {
+        Array(rankedApplicationMatches.prefix(4)).compactMap { match in
+            store.application(id: match.applicationID)
+        }
+    }
+
+    private var suggestedCompanyNames: [String] {
+        let current = draft.companyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MailNoticeMatchingService.suggestedCompanyNames(
+            for: draft,
+            companies: companyOptions,
+            query: current
+        )
+        .filter { $0.caseInsensitiveCompare(current) != .orderedSame }
     }
 
     private var canCreateApplication: Bool {
@@ -474,7 +528,13 @@ struct MailRecognitionView: View {
         hasAnalysis = true
         recognizedCompanyName = draft.companyName
         recognizedPosition = draft.position
-        let suggestion = suggestedApplicationID(for: draft)
+        let matches = MailNoticeMatchingService.rankedApplicationMatches(
+            for: draft,
+            applications: applicationOptions,
+            companies: store.companies
+        )
+        let suggestion = MailNoticeMatchingService.automaticApplicationID(from: matches)
+        applicationSearchText = draft.companyName
         selectedApplicationID = suggestion
         if let suggestion {
             applySelectedApplication(suggestion)
@@ -484,32 +544,6 @@ struct MailRecognitionView: View {
         savedMessage = nil
         didSave = false
         isSaving = false
-    }
-
-    private func suggestedApplicationID(for result: MailNoticeAnalysis) -> UUID? {
-        let scored = applicationOptions.map { application -> (UUID, Int) in
-            let company = store.company(for: application)?.name ?? ""
-            var score = 0
-            if !result.companyName.isEmpty {
-                if company.caseInsensitiveCompare(result.companyName) == .orderedSame { score += 12 }
-                else if company.localizedCaseInsensitiveContains(result.companyName) ||
-                    result.companyName.localizedCaseInsensitiveContains(company) { score += 7 }
-            }
-            if !result.position.isEmpty {
-                if application.position.caseInsensitiveCompare(result.position) == .orderedSame { score += 10 }
-                else if application.position.localizedCaseInsensitiveContains(result.position) ||
-                    result.position.localizedCaseInsensitiveContains(application.position) { score += 5 }
-            }
-            if company.count >= 2, result.sourceText.localizedCaseInsensitiveContains(company) { score += 5 }
-            if application.position.count >= 3,
-               result.sourceText.localizedCaseInsensitiveContains(application.position) { score += 4 }
-            return (application.id, score)
-        }
-        .sorted { $0.1 > $1.1 }
-
-        guard let best = scored.first, best.1 >= 5 else { return nil }
-        if scored.count > 1, scored[1].1 == best.1 { return nil }
-        return best.0
     }
 
     private func applicationLabel(_ application: JobApplication) -> String {
@@ -528,38 +562,49 @@ struct MailRecognitionView: View {
         }
         draft.companyName = store.company(for: application)?.name ?? ""
         draft.position = application.position
-        companySelection = .existing(application.companyID)
+        applicationSearchText = draft.companyName
         savedMessage = nil
     }
 
     private func restoreRecognizedApplicationFields() {
         draft.companyName = recognizedCompanyName
         draft.position = recognizedPosition
-        companySelection = companySelection(for: recognizedCompanyName)
     }
 
-    private func companySelection(for name: String) -> MailCompanySelection {
-        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return .unselected }
-        if let company = companyOptions.first(where: {
-            $0.name.caseInsensitiveCompare(normalized) == .orderedSame
-        }) {
-            return .existing(company.id)
-        }
-        return .recognized
+    private func selectSuggestedApplication(at index: Int) {
+        guard likelyApplicationOptions.indices.contains(index) else { return }
+        selectedApplicationID = likelyApplicationOptions[index].id
     }
 
-    private func applyCompanySelection(_ selection: MailCompanySelection) {
-        guard selectedApplicationID == nil else { return }
-        switch selection {
-        case .unselected:
-            draft.companyName = ""
-        case .recognized:
-            draft.companyName = recognizedCompanyName
-        case .existing(let companyID):
-            draft.companyName = store.company(id: companyID)?.name ?? ""
-        }
+    private func selectSuggestedCompany(at index: Int) {
+        guard selectedApplicationID == nil, suggestedCompanyNames.indices.contains(index) else { return }
+        let name = suggestedCompanyNames[index]
+        draft.companyName = name
+        recognizedCompanyName = name
+        applicationSearchText = name
         savedMessage = nil
+    }
+
+    @ViewBuilder
+    private func candidateButtons(
+        title: String,
+        labels: [String],
+        action: @escaping (Int) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(labels.enumerated()), id: \.offset) { index, label in
+                        Button(label) { action(index) }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                }
+            }
+        }
     }
 
     private func saveRecognizedEvent() {
@@ -615,7 +660,7 @@ struct MailRecognitionView: View {
         draft = MailNoticeAnalysis()
         hasAnalysis = false
         selectedApplicationID = nil
-        companySelection = .unselected
+        applicationSearchText = ""
         recognizedCompanyName = ""
         recognizedPosition = ""
         savedMessage = nil
