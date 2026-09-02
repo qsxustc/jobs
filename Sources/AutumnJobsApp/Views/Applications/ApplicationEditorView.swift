@@ -110,6 +110,12 @@ struct ApplicationEditorView: View {
             Section("自动识别结果") {
                 if !form.location.isEmpty { LabeledContent("工作地点", value: form.location) }
                 if !form.category.isEmpty { LabeledContent("岗位类别", value: form.category) }
+                if !form.projectName.isEmpty {
+                    LabeledContent("招聘项目", value: form.projectName)
+                }
+                if !form.projectType.isEmpty {
+                    LabeledContent("项目类型", value: form.projectType)
+                }
                 if let deadline = form.projectDeadline {
                     LabeledContent("截止时间", value: AppFormatters.fullDate.string(from: deadline))
                 }
@@ -225,7 +231,7 @@ struct ApplicationEditorView: View {
             LargeTextEditor(
                 text: $form.jdText,
                 minimumHeight: minimumHeight,
-                placeholder: "粘贴完整 JD，自动识别公司、岗位、地点、类别、截止时间和岗位要求"
+                placeholder: "粘贴完整 JD，自动识别公司、岗位、地点、类别、招聘项目、截止时间和岗位要求"
             )
             HStack {
                 if !jdParseMessage.isEmpty {
@@ -239,7 +245,8 @@ struct ApplicationEditorView: View {
     }
 
     private var hasParsedMetadata: Bool {
-        !form.location.isEmpty || !form.category.isEmpty || form.projectDeadline != nil || !form.requirements.isEmpty
+        !form.location.isEmpty || !form.category.isEmpty || !form.projectName.isEmpty ||
+            !form.projectType.isEmpty || form.projectDeadline != nil || !form.requirements.isEmpty
     }
 
     private func loadIfNeeded() {
@@ -322,6 +329,8 @@ struct ApplicationEditorView: View {
         if (overwrite || form.position.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty), !result.position.isEmpty { form.position = result.position }
         if (overwrite || form.location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty), !result.location.isEmpty { form.location = result.location }
         if (overwrite || form.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty), !result.category.isEmpty { form.category = result.category }
+        if (overwrite || form.projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty), !result.projectName.isEmpty { form.projectName = result.projectName }
+        if (overwrite || form.projectType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty), !result.projectType.isEmpty { form.projectType = result.projectType }
         if (overwrite || form.projectDeadline == nil), let deadline = result.deadline {
             form.projectDeadline = deadline
             hasProjectDeadline = true

@@ -1168,6 +1168,50 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(calendar.component(.minute, from: deadline), 30)
     }
 
+    func testJDParserExtractsMarkdownPostingWithoutExplicitCompanyOrBaseLabels() {
+        let jd = """
+        **多模态大模型算法工程师 - 搜索**
+        北京、上海、杭州正式
+        研发 - 算法
+        2027届校园招聘
+        职位 ID：A19917B
+        **职位描述**
+        团队介绍：字节跳动搜索团队主要负责抖音、今日头条、AI搜索等产品的搜索算法创新和架构研发工作。
+        **职位要求**
+        1、2027届获得本科及以上学历，计算机、电子、数学等相关专业优先；
+        2、在搜索广告推荐、NLP、多模态、AIGC、机器学习等领域有较深入研究经验；
+        **加分项**
+        1、在 CVPR、NeurIPS、ICLR 等顶级会议发表论文者优先。
+        """
+
+        let result = JDParsingService.analyze(jd)
+
+        XCTAssertEqual(result.companyName, "字节跳动")
+        XCTAssertEqual(result.position, "多模态大模型算法工程师 - 搜索")
+        XCTAssertEqual(result.location, "北京 / 上海 / 杭州")
+        XCTAssertEqual(result.category, "算法")
+        XCTAssertEqual(result.projectName, "2027届校园招聘")
+        XCTAssertEqual(result.projectType, "校招")
+        XCTAssertTrue(result.requirements.contains("多模态"))
+        XCTAssertFalse(result.requirements.contains("加分项"))
+        XCTAssertEqual(result.recognizedFieldCount, 7)
+    }
+
+    func testJDParserRecognizesBaseLabelAndMarkdownLabels() {
+        let jd = """
+        **公司名称：星海科技**
+        **岗位名称：大模型研究员**
+        **Base：深圳、香港**
+        """
+
+        let result = JDParsingService.analyze(jd)
+
+        XCTAssertEqual(result.companyName, "星海科技")
+        XCTAssertEqual(result.position, "大模型研究员")
+        XCTAssertEqual(result.location, "深圳 / 香港")
+        XCTAssertEqual(result.category, "算法")
+    }
+
     func testPossibleDuplicateCanMergeJDWithoutResettingProgress() throws {
         let store = AppStore(storageURL: temporaryURL(), loadSampleIfEmpty: false)
         var existing = ApplicationFormData()
